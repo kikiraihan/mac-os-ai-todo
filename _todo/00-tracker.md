@@ -18,8 +18,16 @@ Rancangan: [`../docs/PRD.md`](../docs/PRD.md). Perbarui setiap tugas selesai.
 
 ## v0.2.0 — aplikasi Mac
 
-- [ ] Menu bar + badge, daftar centang cepat, panel chat (hotkey), notifikasi lokal, token di Keychain
-- [ ] Build & rilis bertanda tangan (pola PasteLAN)
+- [x] Server: `POST /api/login/device` (login password → token perangkat) + tes
+- [x] `Client.swift` (Foundation): API, long-poll, pengelompokan todo, rencana notifikasi; diuji di Linux terhadap server asli
+- [x] Menu bar + badge, centang cepat (⌥ = buka web), tambah todo manual, pengingat berikutnya
+- [x] Panel chat (hotkey ⌥⌘T) dengan konfirmasi / batal / undo kartu aksi
+- [x] Notifikasi lokal (pengingat + tenggat) dengan tombol Selesai / Tunda 10 mnt
+- [x] Token di Keychain, buka saat login, cek pembaruan (Ed25519, pola PasteLAN)
+- [x] Workflow macOS: tes klien, build universal, rilis otomatis
+- [ ] Pemilik: buat kunci tanda tangan (`swift scripts/sign-release.swift keygen`), isi `Updater.publicKey`
+      dan secret `AITODO_SIGNING_KEY` supaya update otomatis aktif
+- [ ] Uji manual di Mac sungguhan
 
 ## Berikutnya
 

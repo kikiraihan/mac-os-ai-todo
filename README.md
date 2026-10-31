@@ -8,7 +8,7 @@ konteksmu antar percakapan (konsep ingatan dari Hermes Agent).
 - **Server**: Go + SQLite, satu binary (PWA ikut tertanam)
 - **Web/PWA**: Vue 3 + Vite, bisa di-install di HP, tablet, PC
 - **AI gratis**: kenari (`:free`), Agnes AI, OpenRouter (`:free`, mis. Qwen) — dengan fallback
-- **Mac**: aplikasi menu bar (tahap berikutnya, lihat [PRD](docs/PRD.md) §5.8)
+- **Mac**: aplikasi menu bar — todo hari ini + badge, centang cepat, chat asisten (⌥⌘T), notifikasi lokal
 
 Rancangan lengkap: [`docs/PRD.md`](docs/PRD.md). Tahapan kerja: [`_todo/00-tracker.md`](_todo/00-tracker.md).
 
@@ -22,6 +22,39 @@ Rancangan lengkap: [`docs/PRD.md`](docs/PRD.md). Tahapan kerja: [`_todo/00-track
 | **Ingatan AI** | profil & catatan yang selalu dibawa asisten; lihat/ubah/hapus, ekspor `.md` |
 | **Pengaturan** | notifikasi perangkat ini, ringkasan pagi & dorongan terlambat, profil & zona waktu, password, perangkat & token aplikasi Mac |
 | **Admin** (peran admin) | ringkasan, pengguna, **katalog Model AI** (tes, aktif/nonaktif, urutan fallback, tambah manual / dari daftar API provider), persona & batas asisten |
+
+## Aplikasi menu bar Mac
+
+Unduh `AITodo.zip` dari [Releases](https://github.com/kikiraihan/mac-os-ai-todo/releases/latest)
+(atau artefak build GitHub Actions), ekstrak, pindahkan `AITodo.app` ke **Applications**, lalu sekali saja:
+
+```bash
+xattr -cr /Applications/AITodo.app
+```
+
+```bash
+open /Applications/AITodo.app
+```
+
+Klik ikon ✓ di menu bar → **Hubungkan ke server…** → alamat server, username, password. Password
+tidak disimpan; Mac mendapat **token perangkat** sendiri di Keychain (bisa dicabut dari web →
+Pengaturan → Perangkat). Alternatif: **Pakai token…** dengan token dari halaman Pengaturan web.
+
+| Di menu bar | Fungsi |
+|---|---|
+| ✓ + angka | jumlah todo hari ini + terlambat (bisa disembunyikan) |
+| klik todo | tandai selesai; tahan ⌥ untuk membuka di browser |
+| Tanya asisten… (⌥⌘T, dari mana saja) | panel chat; tombol **Ya, lakukan / Batal / ↶ Batalkan** untuk kartu aksi |
+| Tambah todo… | input manual: judul, tenggat (hari ini/besok/lusa), jam |
+| Pengingat berikutnya | 3 kemunculan terdekat |
+| Notifikasi | pengingat & tenggat (10 menit sebelum) sebagai notifikasi Mac, tombol **Selesai** / **Tunda 10 mnt** |
+
+Build sendiri (butuh Xcode Command Line Tools): `./scripts/build.sh` → `build/AITodo.app`.
+Klien HTTP-nya (`Sources/AITodo/Client.swift`) bisa diuji di Linux/macOS terhadap server asli:
+`./scripts/test-client.sh`.
+
+> Kalau di Mac yang sama kamu juga menyalakan notifikasi PWA di browser, notifikasi bisa muncul dua
+> kali — pilih salah satu.
 
 ## Menjalankan lokal
 
@@ -71,6 +104,10 @@ Detail: [PRD §7](docs/PRD.md#7-keamanan).
 ```
 server/              Go: cmd/server (main), internal/{db,core,schedule,ai,assistant,scheduler,push,httpapi,webui}
 web/                 Vue 3 + Vite (PWA) → build ke server/internal/webui/dist
+Sources/AITodo/      aplikasi Mac: main.swift (AppKit) + Client.swift (hanya Foundation)
+Resources/Info.plist versi aplikasi Mac (= VERSION)
+Tests/ClientCheck/   uji klien Swift terhadap server asli
+scripts/             build.sh, test-client.sh, sign-release.swift
 docs/PRD.md          rancangan produk
 _todo/               tracker tahapan
 Dockerfile, docker-compose.yml, .env.example, Makefile

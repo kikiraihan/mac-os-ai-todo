@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | **v2** — server & PWA (v0.1.0) sudah diimplementasikan; aplikasi Mac berikutnya |
+| Status | **v2** — server & PWA (v0.1.0) dan aplikasi menu bar Mac (v0.2.0) sudah diimplementasikan |
 | Tanggal | 31 Oktober 2026 |
 | Repo | `kikiraihan/mac-os-ai-todo` |
 | Acuan arsitektur | PasteLAN (server sendiri + PWA + menu bar Mac), our-life-planner (Go + Vue + SQLite) |
@@ -176,12 +176,14 @@ Pengguna bisa melihat, mengubah, dan menghapus semua ingatannya sendiri; admin t
 Tombol di notifikasi: **Selesai** (todo) dan **Tunda 10 mnt** (pengingat). Opsi *sembunyikan isi*
 untuk layar kunci. Web Push hanya dikirim ke perangkat milik pengguna itu.
 
-### 5.8 Aplikasi Mac (fase berikutnya)
+### 5.8 Aplikasi Mac (v0.2.0)
 
 Menu bar dengan badge todo hari ini + terlambat, daftar centang cepat, panel chat (hotkey ⌥⌘T),
-notifikasi lokal dari `GET /api/reminders/upcoming?hours=48`, login dengan **token perangkat**
-(Pengaturan → Perangkat → Buat token; disimpan di Keychain), update bertanda tangan Ed25519
-seperti PasteLAN.
+notifikasi lokal dari `GET /api/reminders/upcoming?hours=48` + tenggat todo berjam (10 menit
+sebelumnya), login dengan username & password lewat `POST /api/login/device` → **token perangkat**
+di Keychain (password tidak disimpan; alternatif tempel token dari web), sinkron real-time lewat
+long-poll, update bertanda tangan Ed25519 seperti PasteLAN. Ringkasan pagi & dorongan terlambat tetap
+hanya lewat Web Push (dibuat server).
 
 ## 6. Desain AI
 
@@ -258,7 +260,7 @@ Semua `/api/` wajib `X-AITodo: 1`. Cookie (browser) atau `Authorization: Bearer`
 
 | Kelompok | Endpoint |
 |---|---|
-| Sesi | `POST /login`, `POST /logout`, `GET/PUT /me`, `PUT /me/password`, `PUT /me/prefs`, `GET /sessions`, `DELETE /sessions/{id}`, `POST /devices` |
+| Sesi | `POST /login`, `POST /login/device`, `POST /logout`, `GET/PUT /me`, `PUT /me/password`, `PUT /me/prefs`, `GET /sessions`, `DELETE /sessions/{id}`, `POST /devices` |
 | Todo | `GET/POST /todos`, `PUT/DELETE /todos/{id}`, `POST /todos/{id}/complete\|reopen`, `POST /todos/archive-done` |
 | Pengingat | `GET/POST /reminders`, `GET /reminders/upcoming`, `PUT/DELETE /reminders/{id}`, `POST /reminders/{id}/snooze` |
 | Chat | `GET/POST/DELETE /chat`, `POST /chat/batches/{id}/confirm\|reject\|undo` |
@@ -271,7 +273,7 @@ Semua `/api/` wajib `X-AITodo: 1`. Cookie (browser) atau `Authorization: Bearer`
 | Versi | Isi | Status |
 |---|---|---|
 | v0.1.0 | server Go + SQLite, PWA Vue (menu pengguna & admin), asisten AI + katalog model, ingatan, pengingat & Web Push, Docker, CI | **selesai** |
-| v0.2.0 | aplikasi menu bar Mac (token perangkat, chat cepat, notifikasi lokal, update bertanda tangan) | berikutnya |
+| v0.2.0 | aplikasi menu bar Mac (token perangkat, chat cepat, notifikasi lokal, update bertanda tangan) | **selesai** (uji di Mac sungguhan menyusul) |
 | v0.3.0 | deploy otomatis ke VPS (backup, health check, rollback) seperti PasteLAN/our-life-planner | |
 | lanjut | todo berulang, sub-tugas, ringkasan ditulis AI, Telegram, *native tool calling* untuk model yang mendukung, rangkuman otomatis ingatan saat penuh | |
 

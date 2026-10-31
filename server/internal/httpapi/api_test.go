@@ -162,6 +162,23 @@ func TestUserIsolationAndDeviceToken(t *testing.T) {
 	}
 }
 
+func TestDeviceLogin(t *testing.T) {
+	s, h := newTestServer(t)
+	mkUser(t, s, "budi", db.RoleUser)
+	c := &client{t: t, h: h}
+	code, out := c.do("POST", "/api/login/device", map[string]string{"username": "budi", "password": "password-panjang-1", "device": "MacBook"}, true)
+	if code != 200 || c.cookie != nil {
+		t.Fatalf("device login: %d, cookie set: %v", code, c.cookie != nil)
+	}
+	mac := &client{t: t, h: h, bearer: out["token"].(string)}
+	if code, _ := mac.do("GET", "/api/me", nil, true); code != 200 {
+		t.Fatalf("device token: %d", code)
+	}
+	if code, _ := c.do("POST", "/api/login/device", map[string]string{"username": "budi", "password": "salah-salah-salah"}, true); code != 401 {
+		t.Fatalf("wrong password: %d", code)
+	}
+}
+
 func TestLastAdminGuardAndNoKeyLeak(t *testing.T) {
 	s, h := newTestServer(t)
 	mkUser(t, s, "admin", db.RoleAdmin)

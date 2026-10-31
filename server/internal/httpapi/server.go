@@ -66,6 +66,7 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/health", s.health)
 	m.HandleFunc("GET /api/config", s.api(s.config))
 	m.HandleFunc("POST /api/login", s.api(s.login))
+	m.HandleFunc("POST /api/login/device", s.api(s.loginDevice))
 	m.HandleFunc("POST /api/logout", s.authed(s.logout))
 	m.HandleFunc("GET /api/me", s.authed(s.me))
 	m.HandleFunc("PUT /api/me", s.authed(s.updateMe))

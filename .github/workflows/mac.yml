@@ -1,0 +1,89 @@
+name: Mac app
+
+# Build AITodo.app di mesin macOS GitHub (tidak ada Mac di lingkungan pengembangan agen).
+# Rilis otomatis: naikkan CFBundleShortVersionString di Resources/Info.plist (sama dengan VERSION),
+# lalu merge ke main → tag v<versi> + GitHub Release berisi AITodo.zip.
+on:
+  push:
+    paths:
+      - "Sources/**"
+      - "Resources/**"
+      - "Tests/**"
+      - "scripts/**"
+      - "server/**"
+      - ".github/workflows/mac.yml"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Baca versi
+        id: ver
+        run: |
+          V=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" Resources/Info.plist)
+          test "$V" = "$(cat VERSION)" || { echo "::error::Info.plist ($V) ≠ VERSION ($(cat VERSION))"; exit 1; }
+          echo "tag=v$V" >> "$GITHUB_OUTPUT"
+          if git ls-remote --exit-code --tags origin "refs/tags/v$V" >/dev/null; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      # klien Swift (Client.swift) diuji terhadap server Go asli
+      - name: Tes klien terhadap server
+        run: ./scripts/test-client.sh
+
+      - name: Build AITodo.app (universal)
+        run: ARCH=universal ./scripts/build.sh
+
+      - name: Cek bundle
+        run: |
+          codesign -d -r- build/AITodo.app 2>&1 | grep -q 'designated => identifier "id.local.aitodo"$'
+          lipo -archs build/AITodo.app/Contents/MacOS/AITodo
+          plutil -lint build/AITodo.app/Contents/Info.plist
+
+      - name: Zip
+        run: |
+          mkdir -p dist
+          ditto -c -k --keepParent build/AITodo.app dist/AITodo.zip
+
+      - name: Tanda tangani AITodo.zip
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.ver.outputs.exists == 'false'
+        env:
+          AITODO_SIGNING_KEY: ${{ secrets.AITODO_SIGNING_KEY }}
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          if [ -z "$AITODO_SIGNING_KEY" ]; then
+            echo "::warning::Secret AITODO_SIGNING_KEY belum diatur → rilis tanpa tanda tangan (update otomatis nonaktif)"
+            exit 0
+          fi
+          swift scripts/sign-release.swift sign dist/AITodo.zip "$TAG" > dist/AITodo.zip.sig
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AITodo
+          path: dist/AITodo.zip
+
+      - name: Rilis otomatis (push ke main, versi belum dirilis)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.ver.outputs.exists == 'false'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: AI Todo ${{ steps.ver.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          generate_release_notes: true
+          files: |
+            dist/AITodo.zip
+            dist/AITodo.zip.sig

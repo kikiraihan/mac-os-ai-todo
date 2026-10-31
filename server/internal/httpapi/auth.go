@@ -133,19 +133,20 @@ func userAgent(r *http.Request) string {
 	return ua
 }
 
-func (s *Server) login(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
-	}
-	if !decode(w, r, &in) {
-		return
-	}
+type loginInput struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+	Device   string `json:"device"` // hanya /api/login/device: nama perangkat, mis. "MacBook"
+}
+
+// checkLogin memeriksa username & password dengan batas percobaan per IP dan
+// global. ok=false berarti respons sudah ditulis.
+func (s *Server) checkLogin(w http.ResponseWriter, r *http.Request, in loginInput) (db.User, bool) {
 	ip := s.clientIP(r)
 	if s.loginLimit.count("ip:"+ip, loginFailWindow) >= loginFailsPerIP ||
 		s.loginLimit.count("global", loginGlobalWindow) >= loginFailsGlobal {
 		writeErr(w, http.StatusTooManyRequests, "terlalu banyak percobaan gagal, coba lagi 15 menit lagi")
-		return
+		return db.User{}, false
 	}
 	user, err := s.DB.GetUserByUsername(strings.TrimSpace(in.Username))
 	hash := string(dummyHash)
@@ -153,12 +154,24 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		hash = user.PasswordHash
 	} else if !errors.Is(err, db.ErrNotFound) {
 		fail(w, err)
-		return
+		return db.User{}, false
 	}
 	if bcrypt.CompareHashAndPassword([]byte(hash), []byte(in.Password)) != nil || err != nil || user.Disabled {
 		s.loginLimit.add("ip:" + ip)
 		s.loginLimit.add("global")
 		writeErr(w, http.StatusUnauthorized, "username atau password salah")
+		return db.User{}, false
+	}
+	return user, true
+}
+
+func (s *Server) login(w http.ResponseWriter, r *http.Request) {
+	var in loginInput
+	if !decode(w, r, &in) {
+		return
+	}
+	user, ok := s.checkLogin(w, r, in)
+	if !ok {
 		return
 	}
 	token, th := newToken()
@@ -171,6 +184,37 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	s.setCookie(w, token, exp)
 	s.trimSessions(user.ID)
 	writeJSON(w, http.StatusOK, map[string]any{"user": user})
+}
+
+// loginDevice: login untuk aplikasi tanpa cookie (menu bar Mac). Mengembalikan
+// token perangkat sekali; server hanya menyimpan hash-nya. Bisa dicabut dari
+// Pengaturan → Perangkat seperti token yang dibuat dari web.
+func (s *Server) loginDevice(w http.ResponseWriter, r *http.Request) {
+	var in loginInput
+	if !decode(w, r, &in) {
+		return
+	}
+	name := strings.TrimSpace(in.Device)
+	if name == "" {
+		name = "Perangkat"
+	}
+	if utf8.RuneCountInString(name) > 60 {
+		writeErr(w, http.StatusBadRequest, "nama perangkat maksimal 60 karakter")
+		return
+	}
+	user, ok := s.checkLogin(w, r, in)
+	if !ok {
+		return
+	}
+	token, th := newToken()
+	sess, err := s.DB.CreateSession(db.Session{UserID: user.ID, Kind: db.SessionDevice, Name: name, UserAgent: userAgent(r),
+		ExpiresAt: db.Stamp(time.Now().Add(deviceSessionTTL))}, th)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	s.trimSessions(user.ID)
+	writeJSON(w, http.StatusOK, map[string]any{"token": token, "user": user, "session": sess})
 }
 
 // trimSessions membuang sesi tertua kalau terlalu banyak.
