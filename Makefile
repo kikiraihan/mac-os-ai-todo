@@ -39,9 +39,9 @@ logs: ## Ikuti log
 
 backup: ## Salin database (aman saat berjalan) ke ./backups/
 	@mkdir -p $(BACKUP_DIR)
-	$(COMPOSE) exec aitodo aitodo backup /data/backup-$(TS).db
+	$(COMPOSE) exec -T aitodo aitodo backup /data/backup-$(TS).db
 	$(COMPOSE) cp aitodo:/data/backup-$(TS).db $(BACKUP_DIR)/aitodo-$(TS).db
-	$(COMPOSE) exec aitodo rm /data/backup-$(TS).db
+	$(COMPOSE) exec -T aitodo rm /data/backup-$(TS).db
 	@echo "Backup: $(BACKUP_DIR)/aitodo-$(TS).db"
 
 version: ## Tampilkan versi

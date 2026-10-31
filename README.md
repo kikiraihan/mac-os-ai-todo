@@ -51,6 +51,8 @@ make backup                         # salin database (aman saat berjalan) ke ./b
 Arahkan subdomain (mis. `todo.katili.dev`) dari nginx/Caddy host ke `127.0.0.1:APP_PORT` dengan
 HTTPS dan header `X-Real-IP`. Web Push dan install PWA di iPhone butuh HTTPS.
 
+Panduan langkah demi langkah (bisa langsung diberikan ke agen AI di server): **[`DEPLOY.md`](DEPLOY.md)**.
+
 ## Keamanan (ringkas)
 
 - API key AI hanya di `.env` server; tidak pernah dikirim ke browser, tidak masuk database, log,

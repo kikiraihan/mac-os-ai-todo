@@ -1,0 +1,36 @@
+# Server block nginx HOST untuk AI Todo — contoh, sesuaikan DOMAIN dan PORT.
+# Salin ke /etc/nginx/sites-available/aitodo, symlink ke sites-enabled, lalu:
+#   sudo nginx -t && sudo systemctl reload nginx
+# HTTPS dipasang certbot (`sudo certbot --nginx -d DOMAIN`), yang menambah blok 443.
+
+# --- Opsi A: domain lewat Cloudflare (awan oranye) -----------------------------
+# Supaya batas percobaan login melihat IP asli pengunjung, bukan IP Cloudflare.
+# Daftar terbaru: https://www.cloudflare.com/ips/ — taruh di http{} sekali saja
+# (mis. /etc/nginx/conf.d/cloudflare-realip.conf) kalau belum ada dari situs lain.
+#   set_real_ip_from 173.245.48.0/20;  ... (semua rentang IPv4 & IPv6 Cloudflare)
+#   real_ip_header CF-Connecting-IP;
+# --- Opsi B: tanpa Cloudflare → tidak perlu apa-apa, $remote_addr sudah IP asli.
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name DOMAIN;           # mis. todo.katili.dev
+
+    # Pesan chat & form kecil; tidak ada unggahan berkas.
+    client_max_body_size 1m;
+
+    location / {
+        proxy_pass http://127.0.0.1:PORT;   # = APP_PORT di .env, mis. 8095
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Long-poll sinkron (25 detik) dan jawaban AI (sampai ±75 detik).
+        proxy_read_timeout 120s;
+        proxy_send_timeout 120s;
+        # Jangan menahan respons long-poll di buffer.
+        proxy_buffering off;
+    }
+}

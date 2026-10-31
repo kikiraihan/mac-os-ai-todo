@@ -8,6 +8,9 @@ AI Todo: server Go + SQLite (`server/`), PWA Vue 3 (`web/`, hasil build ditanam 
 `server/internal/webui/dist`), aplikasi menu bar Mac menyusul. Rancangan: `docs/PRD.md`.
 Perbarui `_todo/00-tracker.md` setiap tahapan selesai.
 
+**Agen yang memasang / memperbarui server di VPS: ikuti [`DEPLOY.md`](DEPLOY.md)** (termasuk aturan
+keamanannya di §0 dan titik "tanya pemilik").
+
 ## Cek sebelum commit
 
 ```bash
