@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -40,6 +41,26 @@ func getenv(key, def string) string {
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lmsgprefix)
 	dataDir := getenv("DATA_DIR", "data")
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "backup":
+			// aitodo backup <berkas-tujuan.db> — salinan konsisten walau server
+			// sedang berjalan (SQLite VACUUM INTO).
+			if len(os.Args) != 3 {
+				log.Fatal("pakai: aitodo backup <tujuan.db>")
+			}
+			if err := backup(filepath.Join(dataDir, "aitodo.db"), os.Args[2]); err != nil {
+				log.Fatalf("backup: %v", err)
+			}
+			log.Printf("backup tersimpan di %s", os.Args[2])
+			return
+		case "version":
+			fmt.Println(version)
+			return
+		default:
+			log.Fatalf("perintah tidak dikenal: %s (tersedia: backup, version)", os.Args[1])
+		}
+	}
 	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		log.Fatalf("buat folder data: %v", err)
 	}
@@ -202,4 +223,17 @@ func housekeeping(ctx context.Context, d *db.DB) {
 		case <-t.C:
 		}
 	}
+}
+
+func backup(src, dst string) error {
+	if _, err := os.Stat(dst); err == nil {
+		return fmt.Errorf("%s sudah ada", dst)
+	}
+	d, err := db.Open(src)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	_, err = d.Exec(`VACUUM INTO ?`, dst)
+	return err
 }

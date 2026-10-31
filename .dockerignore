@@ -1,0 +1,9 @@
+.git
+web/node_modules
+server/internal/webui/dist/*
+!server/internal/webui/dist/.gitkeep
+data
+backups
+.env
+Sources
+build

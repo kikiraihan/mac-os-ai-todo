@@ -1,0 +1,19 @@
+services:
+  aitodo:
+    build:
+      context: .
+      args:
+        VERSION: ${VERSION:-dev}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATA_DIR: /data
+      ADDR: 0.0.0.0:8080
+    ports:
+      # Hanya localhost: nginx/Caddy di host yang membuka HTTPS ke internet.
+      - "127.0.0.1:${APP_PORT:-8095}:8080"
+    volumes:
+      - aitodo_data:/data
+
+volumes:
+  aitodo_data:
