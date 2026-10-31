@@ -1,0 +1,15 @@
+# data & rahasia
+data/
+*.db
+*.db-shm
+*.db-wal
+.env
+backups/
+
+# build
+server/internal/webui/dist/*
+!server/internal/webui/dist/.gitkeep
+web/node_modules/
+build/
+*.app
+/aitodo-server
