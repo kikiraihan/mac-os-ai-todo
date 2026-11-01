@@ -19,6 +19,8 @@ const router = createRouter({
     { path: '/admin/pengguna', name: 'admin-users', component: () => import('./views/admin/AdminUsers.vue'), meta: { admin: true, title: 'Pengguna' } },
     { path: '/admin/model', name: 'admin-models', component: () => import('./views/admin/AdminModels.vue'), meta: { admin: true, title: 'Model AI' } },
     { path: '/admin/asisten', name: 'admin-assistant', component: () => import('./views/admin/AdminAssistant.vue'), meta: { admin: true, title: 'Asisten' } },
+    { path: '/admin/ai-call-log', name: 'admin-ai-calls', component: () => import('./views/admin/AdminAICalls.vue'), meta: { admin: true, title: 'AI Call Log' } },
+    { path: '/admin/system-log', name: 'admin-system-log', component: () => import('./views/admin/AdminSystemLogs.vue'), meta: { admin: true, title: 'System Log' } },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
 })

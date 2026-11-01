@@ -27,6 +27,8 @@ const paths = {
   search: 'M11 18a7 7 0 110-14 7 7 0 010 14zM21 21l-5-5',
   flag: 'M5 21V4M5 4h11l-2 4 2 4H5',
   refresh: 'M20 12a8 8 0 11-3-6.2M20 4v5h-5',
+  list: 'M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01',
+  alert: 'M12 3l10 18H2zM12 10v5M12 18h.01',
 }
 </script>
 

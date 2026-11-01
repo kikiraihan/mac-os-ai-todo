@@ -65,6 +65,9 @@ type Registry struct {
 	allowHost func(p *Provider, host string) bool
 	// Referer & Title dikirim ke OpenRouter (opsional, untuk statistik mereka).
 	Referer string
+	// Recorder menerima setiap request HTTP keluar ke provider (AI Call Log).
+	// nil = tidak dicatat. Tidak boleh memblokir.
+	Recorder func(CallRecord)
 }
 
 // NewRegistry membaca konfigurasi dari getenv (os.Getenv di produksi).
@@ -234,7 +237,7 @@ func (r *Registry) newRequest(ctx context.Context, p *Provider, method, path str
 
 // Chat memanggil satu model. Tidak ada fallback di sini — urutan fallback
 // diatur pemanggil dari katalog.
-func (r *Registry) Chat(ctx context.Context, cr ChatRequest) (ChatResult, error) {
+func (r *Registry) Chat(ctx context.Context, cr ChatRequest) (_ ChatResult, err error) {
 	p, err := r.provider(cr.Provider)
 	if err != nil {
 		return ChatResult{}, err
@@ -269,6 +272,8 @@ func (r *Registry) Chat(ctx context.Context, cr ChatRequest) (ChatResult, error)
 		return ChatResult{}, err
 	}
 	start := time.Now()
+	rec := CallRecord{Provider: p.Key, Model: cr.Model, Endpoint: "/chat/completions", Operation: OpChat}
+	defer func() { r.record(ctx, &rec, start, err) }()
 	resp, err := r.http.Do(req)
 	if err != nil {
 		return ChatResult{}, &Error{Provider: p.Name, Msg: "gagal terhubung: " + scrub(err.Error())}
@@ -276,6 +281,7 @@ func (r *Registry) Chat(ctx context.Context, cr ChatRequest) (ChatResult, error)
 	defer resp.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
 	latency := time.Since(start)
+	rec.HTTPStatus = resp.StatusCode
 	if err != nil {
 		return ChatResult{}, &Error{Provider: p.Name, Status: resp.StatusCode, Msg: "gagal membaca balasan"}
 	}
@@ -293,8 +299,9 @@ func (r *Registry) Chat(ctx context.Context, cr ChatRequest) (ChatResult, error)
 		Usage Usage           `json:"usage"`
 	}
 	jsonErr := json.Unmarshal(raw, &parsed)
+	rec.PromptTokens, rec.CompletionTokens = parsed.Usage.PromptTokens, parsed.Usage.CompletionTokens
 	if resp.StatusCode >= 400 {
-		return ChatResult{}, &Error{Provider: p.Name, Status: resp.StatusCode, Msg: errorMessage(parsed.Error, raw)}
+		return ChatResult{}, &Error{Provider: p.Name, Status: resp.StatusCode, Msg: bodyError(raw)}
 	}
 	if jsonErr != nil {
 		return ChatResult{}, &Error{Provider: p.Name, Status: resp.StatusCode, Msg: "balasan bukan JSON"}
@@ -324,7 +331,32 @@ func errorMessage(errField json.RawMessage, raw []byte) string {
 	if json.Unmarshal(errField, &s) == nil && s != "" {
 		return truncate(scrub(s), 300)
 	}
+	// Gateway new-api (Agnes AI) memakai {"success":false,"message":"..."}.
+	var top struct {
+		Message string `json:"message"`
+	}
+	if json.Unmarshal(raw, &top) == nil && top.Message != "" {
+		return truncate(scrub(top.Message), 300)
+	}
+	// Halaman HTML (mis. Cloudflare memblokir IP server / gateway error) tidak
+	// berguna ditampilkan mentah.
+	if t := strings.ToLower(strings.TrimSpace(string(raw))); strings.HasPrefix(t, "<!doctype") || strings.HasPrefix(t, "<html") {
+		msg := "provider menjawab halaman HTML, bukan JSON"
+		if strings.Contains(t, "cloudflare") {
+			msg += " (kemungkinan IP server diblokir / ditantang Cloudflare)"
+		}
+		return msg
+	}
 	return truncate(scrub(string(raw)), 200)
+}
+
+// bodyError membaca pesan error dari body balasan apa pun bentuknya.
+func bodyError(raw []byte) string {
+	var v struct {
+		Error json.RawMessage `json:"error"`
+	}
+	json.Unmarshal(bytes.TrimSpace(raw), &v)
+	return errorMessage(v.Error, bytes.TrimSpace(raw))
 }
 
 var keyLike = regexp.MustCompile(`(?i)(sk|kn|or)-[a-z0-9_\-]{8,}|bearer\s+\S+`)
@@ -350,24 +382,66 @@ type RemoteModel struct {
 
 // ListModels mengambil daftar model teks dari provider. Varian ":batch"
 // (hanya untuk Batch API) dan model yang tidak menghasilkan teks dibuang.
+// Gangguan sementara (5xx / gagal terhubung) dicoba ulang sekali — gateway
+// Agnes AI kadang menjawab 500 untuk GET /models.
 func (r *Registry) ListModels(ctx context.Context, provider string) ([]RemoteModel, error) {
 	p, ok := r.providers[provider]
 	if !ok {
 		return nil, &Error{Provider: provider, Msg: "provider tidak dikenal"}
 	}
+	var raw []byte
+	var err error
+	for attempt := 0; attempt < 2; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return nil, err
+			case <-time.After(time.Second):
+			}
+		}
+		raw, err = r.fetchModels(ctx, p)
+		var ae *Error
+		if err == nil || !errors.As(err, &ae) || (ae.Status != 0 && ae.Status < 500) {
+			break
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	return parseModels(p, raw)
+}
+
+// fetchModels: satu GET /models (tercatat di AI Call Log).
+func (r *Registry) fetchModels(ctx context.Context, p *Provider) (_ []byte, err error) {
 	req, err := r.newRequest(ctx, p, http.MethodGet, "/models", nil)
 	if err != nil {
 		return nil, err
 	}
+	start := time.Now()
+	rec := CallRecord{Provider: p.Key, Endpoint: "/models", Operation: OpModels}
+	defer func() { r.record(ctx, &rec, start, err) }()
 	resp, err := r.http.Do(req)
 	if err != nil {
 		return nil, &Error{Provider: p.Name, Msg: "gagal terhubung: " + scrub(err.Error())}
 	}
 	defer resp.Body.Close()
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
-	if resp.StatusCode >= 400 {
-		return nil, &Error{Provider: p.Name, Status: resp.StatusCode, Msg: truncate(scrub(string(raw)), 200)}
+	rec.HTTPStatus = resp.StatusCode
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
+	if err != nil {
+		return nil, &Error{Provider: p.Name, Status: resp.StatusCode, Msg: "gagal membaca daftar model"}
 	}
+	if resp.StatusCode >= 400 {
+		return nil, &Error{Provider: p.Name, Status: resp.StatusCode, Msg: bodyError(raw)}
+	}
+	return raw, nil
+}
+
+// nonChatModel: id yang jelas bukan model chat teks (gambar, video, embedding,
+// suara). Dipakai untuk provider yang tidak melaporkan modalitas (mis. Agnes AI
+// mendaftar agnes-image-* dan agnes-video-* bersama model chat).
+var nonChatModel = regexp.MustCompile(`(?i)(^|[-_/:.])(image|images|video|embed|embedding|embeddings|tts|whisper|audio|rerank|moderation|dall-e|flux|sdxl)([-_/:.]|$)`)
+
+func parseModels(p *Provider, raw []byte) ([]RemoteModel, error) {
 	var parsed struct {
 		Data []struct {
 			ID            string `json:"id"`
@@ -382,6 +456,8 @@ func (r *Registry) ListModels(ctx context.Context, provider string) ([]RemoteMod
 			} `json:"pricing"`
 			Endpoints []string `json:"endpoints"`
 			Type      string   `json:"type"`
+			// new-api (Agnes AI): "openai", "image-generation", "embeddings", ...
+			EndpointTypes []string `json:"supported_endpoint_types"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(bytes.TrimSpace(raw), &parsed); err != nil {
@@ -401,7 +477,15 @@ func (r *Registry) ListModels(ctx context.Context, provider string) ([]RemoteMod
 		if m.Type != "" && !strings.Contains(strings.ToLower(m.Type), "chat") && !strings.Contains(strings.ToLower(m.Type), "text") {
 			continue
 		}
-		free := strings.HasSuffix(m.ID, ":free") || (m.Pricing.Prompt == "0" && m.Pricing.Completion == "0")
+		if len(m.EndpointTypes) > 0 && !containsStr(m.EndpointTypes, "openai") {
+			continue
+		}
+		if len(m.Architecture.OutputModalities) == 0 && nonChatModel.MatchString(m.ID) {
+			continue
+		}
+		free := strings.HasSuffix(m.ID, ":free") || (m.Pricing.Prompt == "0" && m.Pricing.Completion == "0") ||
+			// Agnes AI tidak melaporkan harga; model teksnya gratis (sama dengan katalog bawaan).
+			p.Key == ProviderAgnes
 		out = append(out, RemoteModel{ID: m.ID, Name: m.Name, Free: free, Context: m.ContextLength})
 	}
 	if len(out) == 0 {

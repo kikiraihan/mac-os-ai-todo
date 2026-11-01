@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"regexp"
 	"strings"
@@ -433,6 +434,7 @@ func (s *Server) adminTestModel(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
+	ctx = ai.WithCaller(ctx, ai.Caller{UserID: userOf(r).ID, Feature: "admin.tes-model"})
 	res, err := s.AI.Chat(ctx, ai.ChatRequest{Provider: m.Provider, Model: m.ModelID, ExtraBody: m.ExtraBody, MaxTokens: 400, JSON: true,
 		Messages: []ai.Message{
 			{Role: "system", Content: `Balas hanya dengan objek JSON {"reply": "...", "actions": []}.`},
@@ -476,8 +478,10 @@ func (s *Server) adminRemoteModels(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
+	ctx = ai.WithCaller(ctx, ai.Caller{UserID: userOf(r).ID, Feature: "admin.daftar-model"})
 	list, err := s.AI.ListModels(ctx, provider)
 	if err != nil {
+		log.Printf("ai: daftar model %s gagal: %v", provider, err) // tampil di Admin → System Log
 		writeErr(w, http.StatusBadGateway, err.Error())
 		return
 	}

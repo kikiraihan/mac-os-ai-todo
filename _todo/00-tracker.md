@@ -29,6 +29,15 @@ Rancangan: [`../docs/PRD.md`](../docs/PRD.md). Perbarui setiap tugas selesai.
       dan secret `AITODO_SIGNING_KEY` supaya update otomatis aktif
 - [ ] Uji manual di Mac sungguhan
 
+## v0.3.0 — log admin (pola Racik)
+
+- [x] AI Call Log: setiap request keluar ke provider AI dicatat (metadata saja, tanpa isi prompt/jawaban)
+      lewat `ai.Registry.Recorder` → antrean asinkron → tabel `ai_calls`; retensi `AI_CALL_LOG_RETENTION_DAYS`
+- [x] System Log: ring buffer 3000 baris log server di memori, password & key disembunyikan
+- [x] Endpoint admin + halaman Admin → AI Call Log & System Log + tes
+- [x] Daftar model Agnes: coba ulang sekali saat 5xx, pesan error gaya new-api/HTML terbaca, model gambar/video
+      dibuang, model Agnes ditandai gratis (sebelumnya daftar kosong karena filter "Gratis saja")
+
 ## Berikutnya
 
 - [ ] Deploy otomatis ke VPS (backup, health check, rollback)

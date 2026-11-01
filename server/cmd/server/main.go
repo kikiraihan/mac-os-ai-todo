@@ -6,17 +6,20 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 	_ "time/tzdata" // zona waktu tetap ada di container minimal
 
 	"aitodo/server/internal/ai"
+	"aitodo/server/internal/applog"
 	"aitodo/server/internal/db"
 	"aitodo/server/internal/httpapi"
 	"aitodo/server/internal/push"
@@ -40,6 +43,10 @@ func getenv(key, def string) string {
 
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lmsgprefix)
+	// Log server juga disimpan di memori (3000 baris terakhir) supaya bisa dilihat
+	// dari Admin → System Log tanpa akses ke container.
+	systemLog := applog.NewRing(3000)
+	log.SetOutput(io.MultiWriter(os.Stderr, systemLog))
 	dataDir := getenv("DATA_DIR", "data")
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
@@ -94,6 +101,17 @@ func main() {
 		log.Printf("AI provider %s (%s): %s", p.Name, p.BaseURL, state)
 	}
 
+	// AI Call Log (tabel ai_calls): ditulis asinkron supaya tidak memperlambat asisten.
+	aiCalls := applog.NewAICalls(database)
+	registry.Recorder = aiCalls.Record
+	logCtx, stopLog := context.WithCancel(context.Background())
+	go aiCalls.Run(logCtx)
+	retention, err := strconv.Atoi(getenv("AI_CALL_LOG_RETENTION_DAYS", "30"))
+	if err != nil || retention < 0 {
+		log.Printf("PERINGATAN: AI_CALL_LOG_RETENTION_DAYS tidak valid, memakai 30")
+		retention = 30
+	}
+
 	pushSvc, err := push.New(database, getenv("VAPID_SUBSCRIBER", "mailto:admin@localhost"))
 	if err != nil {
 		log.Fatalf("web push: %v", err)
@@ -105,14 +123,17 @@ func main() {
 		SecureCookies: secure,
 		TrustProxy:    getenv("TRUST_PROXY", "false") == "true",
 		DefaultTZ:     loc,
+
+		AICallRetentionDays: retention,
 	})
+	srv.SystemLog = systemLog
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	sched := &scheduler.Scheduler{DB: database, Push: pushSvc, Loc: func(u db.User) *time.Location { return srv.LoadLocation(u.Timezone) },
 		OnChange: srv.Hub.Bump}
 	go sched.Run(ctx)
-	go housekeeping(ctx, database)
+	go housekeeping(ctx, database, retention)
 
 	mux := http.NewServeMux()
 	mux.Handle("/api/", srv.Mux)
@@ -143,6 +164,8 @@ func main() {
 	shutdown, done := context.WithTimeout(context.Background(), 10*time.Second)
 	defer done()
 	httpServer.Shutdown(shutdown)
+	stopLog()
+	aiCalls.Wait(5 * time.Second)
 }
 
 // bootstrapAdmin membuat akun admin pertama kalau belum ada pengguna sama sekali.
@@ -207,7 +230,7 @@ func seedModels(d *db.DB) error {
 	return d.SetSetting(key, "1")
 }
 
-func housekeeping(ctx context.Context, d *db.DB) {
+func housekeeping(ctx context.Context, d *db.DB, aiCallRetentionDays int) {
 	t := time.NewTicker(6 * time.Hour)
 	defer t.Stop()
 	for {
@@ -216,6 +239,11 @@ func housekeeping(ctx context.Context, d *db.DB) {
 		}
 		if err := d.PruneChat(500); err != nil {
 			log.Printf("housekeeping: chat: %v", err)
+		}
+		if aiCallRetentionDays > 0 {
+			if err := d.PruneAICalls(time.Now().AddDate(0, 0, -aiCallRetentionDays)); err != nil {
+				log.Printf("housekeeping: ai call log: %v", err)
+			}
 		}
 		select {
 		case <-ctx.Done():

@@ -276,6 +276,7 @@ func (a *Assistant) runAI(ctx context.Context, user db.User, loc *time.Location,
 
 	ctx, cancel := context.WithTimeout(ctx, totalDeadline)
 	defer cancel()
+	ctx = ai.WithCaller(ctx, ai.Caller{UserID: user.ID, Feature: "asisten"}) // AI Call Log
 
 	var lastErr error
 	for _, m := range models {
