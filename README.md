@@ -21,7 +21,7 @@ Rancangan lengkap: [`docs/PRD.md`](docs/PRD.md). Tahapan kerja: [`_todo/00-track
 | **Pengingat** | sekali, harian, mingguan, bulanan, tahunan, tiap N menit/jam dalam rentang jam; berakhir pada tanggal / setelah N kali; tunda, jeda |
 | **Ingatan AI** | profil & catatan yang selalu dibawa asisten; lihat/ubah/hapus, ekspor `.md` |
 | **Pengaturan** | notifikasi perangkat ini, ringkasan pagi & dorongan terlambat, profil & zona waktu, password, perangkat & token aplikasi Mac |
-| **Admin** (peran admin) | ringkasan, pengguna, **katalog Model AI** (tes, aktif/nonaktif, urutan fallback, tambah manual / dari daftar API provider), persona & batas asisten |
+| **Admin** (peran admin) | ringkasan, pengguna, **katalog Model AI** (tes, aktif/nonaktif, urutan fallback, tambah manual / dari daftar API provider), persona & batas asisten, **AI Call Log** (request keluar ke provider AI) & **System Log** (error server) |
 
 ## Aplikasi menu bar Mac
 

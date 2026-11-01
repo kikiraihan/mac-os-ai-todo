@@ -166,6 +166,26 @@ CREATE TRIGGER IF NOT EXISTS chat_fts_ad AFTER DELETE ON chat_messages BEGIN
 	INSERT INTO chat_fts(chat_fts, rowid, content) VALUES ('delete', old.id, old.content);
 END;
 
+-- AI Call Log: setiap request HTTP keluar ke provider AI (metadata saja,
+-- tanpa body request/response — isinya data pengguna).
+CREATE TABLE IF NOT EXISTS ai_calls (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+	feature TEXT NOT NULL DEFAULT '',
+	provider TEXT NOT NULL,
+	model TEXT NOT NULL DEFAULT '',
+	endpoint TEXT NOT NULL DEFAULT '',
+	operation TEXT NOT NULL DEFAULT '',
+	http_status INTEGER NOT NULL DEFAULT 0,
+	ok INTEGER NOT NULL DEFAULT 0,
+	latency_ms INTEGER NOT NULL DEFAULT 0,
+	prompt_tokens INTEGER NOT NULL DEFAULT 0,
+	completion_tokens INTEGER NOT NULL DEFAULT 0,
+	error TEXT NOT NULL DEFAULT '',
+	created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ai_calls_created ON ai_calls(created_at);
+
 CREATE TABLE IF NOT EXISTS push_subscriptions (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,

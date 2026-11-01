@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"aitodo/server/internal/ai"
+	"aitodo/server/internal/applog"
 	"aitodo/server/internal/assistant"
 	"aitodo/server/internal/core"
 	"aitodo/server/internal/db"
@@ -35,6 +36,8 @@ type Config struct {
 	SecureCookies bool
 	TrustProxy    bool
 	DefaultTZ     *time.Location
+	// AICallRetentionDays: AI Call Log dihapus setelah N hari (0 = selamanya).
+	AICallRetentionDays int
 }
 
 type Server struct {
@@ -45,6 +48,8 @@ type Server struct {
 	Hub       *Hub
 	Cfg       Config
 	Mux       *http.ServeMux
+	// SystemLog: baris log server terakhir di memori (menu System Log). nil = mati.
+	SystemLog *applog.Ring
 
 	loginLimit *limiter
 	chatLimit  *limiter
@@ -117,6 +122,10 @@ func (s *Server) routes() {
 	m.HandleFunc("DELETE /api/admin/ai/models/{id}", s.admin(s.adminDeleteModel))
 	m.HandleFunc("POST /api/admin/ai/models/{id}/test", s.admin(s.adminTestModel))
 	m.HandleFunc("GET /api/admin/ai/providers/{provider}/models", s.admin(s.adminRemoteModels))
+	m.HandleFunc("GET /api/admin/ai-calls", s.admin(s.adminListAICalls))
+	m.HandleFunc("GET /api/admin/ai-calls/summary", s.admin(s.adminAICallSummary))
+	m.HandleFunc("POST /api/admin/ai-calls/delete", s.admin(s.adminDeleteAICalls))
+	m.HandleFunc("GET /api/admin/system-logs", s.admin(s.adminSystemLogs))
 
 	s.memoryRoutes()
 

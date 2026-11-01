@@ -3,6 +3,7 @@ package httpapi
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"aitodo/server/internal/ai"
+	"aitodo/server/internal/applog"
 	"aitodo/server/internal/db"
 	"aitodo/server/internal/push"
 )
@@ -213,3 +215,40 @@ func TestSecurityHeaders(t *testing.T) {
 }
 
 func itoa(n int64) string { b, _ := json.Marshal(n); return string(b) }
+
+func TestAdminLogs(t *testing.T) {
+	s, h := newTestServer(t)
+	s.SystemLog = applog.NewRing(10)
+	fmt.Fprintln(s.SystemLog, "api: database is locked")
+	mkUser(t, s, "admin", db.RoleAdmin)
+	mkUser(t, s, "budi", db.RoleUser)
+	s.DB.InsertAICall(db.AICall{Provider: "kenari", Model: "m", Operation: "chat", HTTPStatus: 200, OK: true})
+	s.DB.InsertAICall(db.AICall{Provider: "kenari", Model: "m", Operation: "chat", HTTPStatus: 429, Error: "penuh"})
+
+	u := login(t, h, "budi")
+	for _, p := range []string{"/api/admin/ai-calls", "/api/admin/ai-calls/summary", "/api/admin/system-logs"} {
+		if code, _ := u.do("GET", p, nil, true); code != 403 {
+			t.Fatalf("%s: user biasa harus ditolak, dapat %d", p, code)
+		}
+	}
+	a := login(t, h, "admin")
+	code, out := a.do("GET", "/api/admin/ai-calls?status=error", nil, true)
+	if code != 200 || out["total"].(float64) != 1 {
+		t.Fatalf("list: %d %v", code, out)
+	}
+	code, out = a.do("GET", "/api/admin/ai-calls/summary?days=7", nil, true)
+	if code != 200 || out["total"].(map[string]any)["calls"].(float64) != 2 {
+		t.Fatalf("summary: %d %v", code, out)
+	}
+	code, out = a.do("GET", "/api/admin/system-logs?level=error", nil, true)
+	if code != 200 || len(out["items"].([]any)) != 1 {
+		t.Fatalf("system log: %d %v", code, out)
+	}
+	if code, _ := a.do("POST", "/api/admin/ai-calls/delete", map[string]any{}, true); code != 400 {
+		t.Fatalf("hapus tanpa pilihan: %d", code)
+	}
+	code, out = a.do("POST", "/api/admin/ai-calls/delete", map[string]any{"all": true}, true)
+	if code != 200 || out["deleted"].(float64) != 2 {
+		t.Fatalf("hapus semua: %d %v", code, out)
+	}
+}

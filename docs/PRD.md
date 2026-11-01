@@ -163,6 +163,14 @@ Pengguna bisa melihat, mengubah, dan menghapus semua ingatannya sendiri; admin t
   - *extra body* tidak boleh menimpa `model`, `messages`, `stream`.
 - **Asisten**: aktif/mati, persona, kirim catatan todo ke AI (default mati), batas token, batas pesan
   per menit/hari per pengguna.
+- **AI Call Log**: setiap request keluar ke provider AI (tabel `ai_calls`): waktu, provider, model,
+  endpoint, fitur (`asisten`, `admin.tes-model`, `admin.daftar-model`), pengguna, status HTTP,
+  latensi, token, pesan error (dibersihkan dari key). **Tanpa isi prompt/jawaban** — admin tetap tidak
+  bisa membaca data pengguna. Ringkasan per model (1/7/30/90 hari), filter, hapus terpilih/semua;
+  dihapus otomatis setelah `AI_CALL_LOG_RETENTION_DAYS` (bawaan 30, 0 = selamanya).
+- **System Log**: 3000 baris log server terakhir di memori (error API, model gagal, penjadwal, push),
+  level ditebak dari isi (error / peringatan / info), filter & auto refresh. Password dan teks mirip
+  API key disembunyikan sebelum disimpan; isi hilang saat restart.
 
 ### 5.7 Notifikasi
 
@@ -266,7 +274,7 @@ Semua `/api/` wajib `X-AITodo: 1`. Cookie (browser) atau `Authorization: Bearer`
 | Chat | `GET/POST/DELETE /chat`, `POST /chat/batches/{id}/confirm\|reject\|undo` |
 | Ingatan | `GET/POST /memory`, `PUT/DELETE /memory/{id}`, `GET /memory/export` |
 | Sinkron & push | `GET /changes`, `GET /push/key`, `POST /push/subscribe\|unsubscribe\|test` |
-| Admin | `GET /admin/stats`, `GET/POST /admin/users`, `PUT/DELETE /admin/users/{id}`, `GET /admin/ai`, `PUT /admin/ai/settings`, `POST /admin/ai/models`, `PUT/DELETE /admin/ai/models/{id}`, `POST /admin/ai/models/{id}/test`, `POST /admin/ai/models/reorder`, `GET /admin/ai/providers/{p}/models`, `POST /admin/ai/models/import` |
+| Admin | `GET /admin/stats`, `GET/POST /admin/users`, `PUT/DELETE /admin/users/{id}`, `GET /admin/ai`, `PUT /admin/ai/settings`, `POST /admin/ai/models`, `PUT/DELETE /admin/ai/models/{id}`, `POST /admin/ai/models/{id}/test`, `POST /admin/ai/models/reorder`, `GET /admin/ai/providers/{p}/models`, `POST /admin/ai/models/import`, `GET /admin/ai-calls`, `GET /admin/ai-calls/summary`, `POST /admin/ai-calls/delete`, `GET /admin/system-logs` |
 
 ## 10. Tahapan
 
@@ -274,7 +282,8 @@ Semua `/api/` wajib `X-AITodo: 1`. Cookie (browser) atau `Authorization: Bearer`
 |---|---|---|
 | v0.1.0 | server Go + SQLite, PWA Vue (menu pengguna & admin), asisten AI + katalog model, ingatan, pengingat & Web Push, Docker, CI | **selesai** |
 | v0.2.0 | aplikasi menu bar Mac (token perangkat, chat cepat, notifikasi lokal, update bertanda tangan) | **selesai** (uji di Mac sungguhan menyusul) |
-| v0.3.0 | deploy otomatis ke VPS (backup, health check, rollback) seperti PasteLAN/our-life-planner | |
+| v0.3.0 | menu admin AI Call Log & System Log (pola Racik) | **selesai** |
+| v0.4.0 | deploy otomatis ke VPS (backup, health check, rollback) seperti PasteLAN/our-life-planner | |
 | lanjut | todo berulang, sub-tugas, ringkasan ditulis AI, Telegram, *native tool calling* untuk model yang mendukung, rangkuman otomatis ingatan saat penuh | |
 
 ## 11. Kriteria penerimaan v0.1.0

@@ -25,6 +25,8 @@ const adminNav = [
   { to: '/admin/pengguna', icon: 'users', label: 'Pengguna' },
   { to: '/admin/model', icon: 'cpu', label: 'Model AI' },
   { to: '/admin/asisten', icon: 'spark', label: 'Asisten' },
+  { to: '/admin/ai-call-log', icon: 'list', label: 'AI Call Log' },
+  { to: '/admin/system-log', icon: 'alert', label: 'System Log' },
 ]
 const mobileNav = userNav.filter((n) => n.to !== '/ingatan')
 </script>
