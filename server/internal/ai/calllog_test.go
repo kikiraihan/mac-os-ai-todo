@@ -30,8 +30,9 @@ func TestCallRecorder(t *testing.T) {
 	// Tanpa API key / provider tidak dikenal: tidak ada request keluar, tidak dicatat.
 	r.Chat(ctx, ChatRequest{Provider: "entah", Model: "x"})
 
-	if len(got) != 2 {
-		t.Fatalf("tercatat %d, mau 2: %+v", len(got), got)
+	// chat + 2 percobaan GET /models (500 dicoba ulang sekali)
+	if len(got) != 3 {
+		t.Fatalf("tercatat %d, mau 3: %+v", len(got), got)
 	}
 	c := got[0]
 	if !c.OK || c.UserID != 7 || c.Feature != "asisten" || c.Provider != ProviderKenari || c.Model != "m:free" ||

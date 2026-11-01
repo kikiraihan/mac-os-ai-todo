@@ -128,3 +128,63 @@ func TestListModels(t *testing.T) {
 		t.Fatalf("got %+v", ms)
 	}
 }
+
+// Balasan GET /v1/models asli Agnes AI (gateway new-api): model gambar & video
+// ikut terdaftar tanpa info modalitas.
+const agnesModels = `{"data":[{"id":"agnes-2.5-pro-alpha","object":"model","created":1626777600,"owned_by":"custom","supported_endpoint_types":["openai"]},{"id":"agnes-video-2.5-flash","object":"model","created":1626777600,"owned_by":"custom","supported_endpoint_types":["openai"]},{"id":"agnes-3.0-flash","object":"model","created":1626777600,"owned_by":"custom","supported_endpoint_types":["openai"]},{"id":"agnes-image-2.1-flash","object":"model","created":1626777600,"owned_by":"custom","supported_endpoint_types":["openai"]},{"id":"agnes-video-2.5","object":"model","created":1626777600,"owned_by":"custom","supported_endpoint_types":["openai"]},{"id":"agnes-image-2.0-flash","object":"model","created":1626777600,"owned_by":"custom","supported_endpoint_types":["openai"]},{"id":"agnes-2.5-flash","object":"model","created":1626777600,"owned_by":"custom","supported_endpoint_types":["openai"]},{"id":"agnes-2.5-pro-beta","object":"model","created":1626777600,"owned_by":"custom","supported_endpoint_types":["openai"]},{"id":"agnes-image-2.5-flash","object":"model","created":1626777600,"owned_by":"custom","supported_endpoint_types":["openai"]},{"id":"text-embedding-3","supported_endpoint_types":["embeddings"]}],"object":"list","success":true}`
+
+func TestListModelsAgnes(t *testing.T) {
+	calls := 0
+	r := testRegistry(t, func(w http.ResponseWriter, req *http.Request) {
+		calls++
+		if calls == 1 {
+			// gangguan sementara gateway → dicoba ulang sekali
+			w.WriteHeader(500)
+			io.WriteString(w, `{"success":false,"message":"get user group failed"}`)
+			return
+		}
+		io.WriteString(w, agnesModels)
+	})
+	ms, err := r.ListModels(context.Background(), ProviderAgnes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, m := range ms {
+		ids = append(ids, m.ID)
+	}
+	for _, m := range ms {
+		if !m.Free {
+			t.Errorf("model Agnes harus tampil di filter \"Gratis saja\": %+v", m)
+		}
+	}
+	if calls != 2 || strings.Join(ids, ",") != "agnes-2.5-flash,agnes-2.5-pro-alpha,agnes-2.5-pro-beta,agnes-3.0-flash" {
+		t.Fatalf("calls=%d ids=%v", calls, ids)
+	}
+}
+
+func TestListModelsErrorMessage(t *testing.T) {
+	cases := []struct {
+		status     int
+		body, want string
+	}{
+		{500, `{"success":false,"message":"get user group failed"}`, "Agnes AI HTTP 500: get user group failed"},
+		{401, `{"error":{"message":"Invalid token","type":"AgnesAI_error"}}`, "Agnes AI HTTP 401: Invalid token"},
+		{403, `<!DOCTYPE html><title>Attention Required! | Cloudflare</title>`, "halaman HTML"},
+	}
+	for _, c := range cases {
+		calls := 0
+		r := testRegistry(t, func(w http.ResponseWriter, req *http.Request) {
+			calls++
+			w.WriteHeader(c.status)
+			io.WriteString(w, c.body)
+		})
+		_, err := r.ListModels(context.Background(), ProviderAgnes)
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%d: err %v, mau %q", c.status, err, c.want)
+		}
+		if want := map[bool]int{true: 2, false: 1}[c.status >= 500]; calls != want {
+			t.Errorf("%d: %d percobaan, mau %d", c.status, calls, want)
+		}
+	}
+}

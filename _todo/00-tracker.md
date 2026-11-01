@@ -35,6 +35,8 @@ Rancangan: [`../docs/PRD.md`](../docs/PRD.md). Perbarui setiap tugas selesai.
       lewat `ai.Registry.Recorder` → antrean asinkron → tabel `ai_calls`; retensi `AI_CALL_LOG_RETENTION_DAYS`
 - [x] System Log: ring buffer 3000 baris log server di memori, password & key disembunyikan
 - [x] Endpoint admin + halaman Admin → AI Call Log & System Log + tes
+- [x] Daftar model Agnes: coba ulang sekali saat 5xx, pesan error gaya new-api/HTML terbaca, model gambar/video
+      dibuang, model Agnes ditandai gratis (sebelumnya daftar kosong karena filter "Gratis saja")
 
 ## Berikutnya
 
