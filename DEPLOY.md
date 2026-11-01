@@ -241,6 +241,10 @@ docker compose start aitodo
 
 ## 10. Memperbarui
 
+> Setelah setup pertama ini, pasang **auto deploy** dari GitHub Actions: ikuti [`CICD.md`](CICD.md).
+> Setiap merge ke `main` lalu otomatis backup → pull → rebuild → health check → rollback bila gagal.
+> Cara manual di bawah tetap bisa dipakai (atau `make deploy`, yang menjalankan alur yang sama).
+
 ```bash
 cd /var/www/ai-todo
 make backup

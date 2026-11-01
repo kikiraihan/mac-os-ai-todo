@@ -1,0 +1,98 @@
+name: Deploy ke VPS
+
+on:
+  push:
+    branches: [main]
+    # Perubahan yang hanya menyentuh aplikasi Mac / dokumentasi tidak perlu
+    # me-restart server.
+    paths:
+      - "server/**"
+      - "web/**"
+      - "Dockerfile"
+      - ".dockerignore"
+      - "docker-compose.yml"
+      - "VERSION"
+      - "scripts/deploy.sh"
+      - "scripts/rollback.sh"
+      - "Makefile"
+      - ".github/workflows/deploy.yml"
+      - ".github/workflows/ci.yml"
+  workflow_dispatch:
+    inputs:
+      skip_backup:
+        description: "Lewati backup DB sebelum deploy"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# Cegah dua deploy jalan bersamaan di VPS yang sama.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  # Deploy hanya jalan kalau CI (tes server, build web, build image) lulus.
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    name: SSH deploy
+    needs: ci
+    runs-on: ubuntu-latest
+    env:
+      SSH_HOST: ${{ secrets.SSH_HOST }}
+      SSH_USER: ${{ secrets.SSH_USER }}
+      SSH_PORT: ${{ secrets.SSH_PORT || '22' }}
+      APP_DIR: ${{ secrets.APP_DIR || '/var/www/ai-todo' }}
+      DEPLOY_BRANCH: ${{ github.ref_name }}
+      SKIP_BACKUP: ${{ inputs.skip_backup && '1' || '0' }}
+    steps:
+      - name: Siapkan kunci SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_HOST" || { echo "Secret SSH_HOST belum diisi (lihat CICD.md B1)."; exit 1; }
+          test -n "$SSH_USER" || { echo "Secret SSH_USER belum diisi."; exit 1; }
+          test -n "$SSH_PRIVATE_KEY" || { echo "Secret SSH_PRIVATE_KEY belum diisi."; exit 1; }
+
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+
+          if [ -n "$SSH_KNOWN_HOSTS" ]; then
+            printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          else
+            echo "::warning::Secret SSH_KNOWN_HOSTS kosong; host key diambil lewat ssh-keyscan (tanpa verifikasi)."
+            ssh-keyscan -p "$SSH_PORT" -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          fi
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Jalankan deploy di VPS
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/id_deploy -p "$SSH_PORT" \
+              -o IdentitiesOnly=yes \
+              -o BatchMode=yes \
+              -o ConnectTimeout=15 \
+              "$SSH_USER@$SSH_HOST" \
+              "cd '$APP_DIR' && DEPLOY_BRANCH='$DEPLOY_BRANCH' SKIP_BACKUP='$SKIP_BACKUP' ./scripts/deploy.sh"
+
+      - name: Ringkasan
+        if: always()
+        run: |
+          {
+            echo "### Deploy ${{ job.status }}"
+            echo ""
+            echo "- Commit: \`${{ github.sha }}\`"
+            echo "- Branch: \`${{ github.ref_name }}\`"
+            echo "- Server: \`$SSH_USER@$SSH_HOST:$APP_DIR\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Bersihkan kunci SSH
+        if: always()
+        run: rm -f ~/.ssh/id_deploy

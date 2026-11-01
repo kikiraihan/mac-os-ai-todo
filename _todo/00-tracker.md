@@ -31,6 +31,7 @@ Rancangan: [`../docs/PRD.md`](../docs/PRD.md). Perbarui setiap tugas selesai.
 
 ## Berikutnya
 
-- [ ] Deploy otomatis ke VPS (backup, health check, rollback)
+- [x] Deploy otomatis ke VPS (backup, health check, rollback) — `CICD.md`, diuji dengan docker tiruan
+- [ ] Pemilik: isi secret SSH_* (CICD.md B1) setelah server pertama kali dipasang
 - [ ] Uji dengan API key asli & pilih model default terbaik
 - [ ] Todo berulang, sub-tugas, rangkuman otomatis ingatan

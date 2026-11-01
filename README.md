@@ -85,6 +85,8 @@ Arahkan subdomain (mis. `todo.katili.dev`) dari nginx/Caddy host ke `127.0.0.1:A
 HTTPS dan header `X-Real-IP`. Web Push dan install PWA di iPhone butuh HTTPS.
 
 Panduan langkah demi langkah (bisa langsung diberikan ke agen AI di server): **[`DEPLOY.md`](DEPLOY.md)**.
+Auto deploy setiap merge ke `main` (CI → SSH → backup → rebuild → health check → rollback otomatis):
+**[`CICD.md`](CICD.md)**.
 
 ## Keamanan (ringkas)
 
@@ -107,7 +109,7 @@ web/                 Vue 3 + Vite (PWA) → build ke server/internal/webui/dist
 Sources/AITodo/      aplikasi Mac: main.swift (AppKit) + Client.swift (hanya Foundation)
 Resources/Info.plist versi aplikasi Mac (= VERSION)
 Tests/ClientCheck/   uji klien Swift terhadap server asli
-scripts/             build.sh, test-client.sh, sign-release.swift
+scripts/             build.sh, test-client.sh, sign-release.swift, deploy.sh, rollback.sh
 docs/PRD.md          rancangan produk
 _todo/               tracker tahapan
 Dockerfile, docker-compose.yml, .env.example, Makefile

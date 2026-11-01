@@ -1,9 +1,21 @@
-.PHONY: help dev-server dev-web build web test ci up down logs backup version
+.PHONY: help dev-server dev-web build web test ci up down logs ps backup version deploy deploy-remote rollback health
 
 VERSION := $(shell cat VERSION)
 COMPOSE ?= docker compose
 BACKUP_DIR ?= backups
 TS := $(shell date +%Y%m%d-%H%M%S)
+
+# --- Konfigurasi deploy (lihat CICD.md) --------------------------------------
+# DEPLOY_BRANCH : branch yang di-deploy ke produksi
+# SSH_TARGET    : user@host VPS, atau alias dari ~/.ssh/config (untuk deploy-remote)
+# SSH_PORT      : port SSH VPS
+# REMOTE_DIR    : lokasi repo di VPS
+DEPLOY_BRANCH ?= main
+SSH_TARGET    ?=
+SSH_PORT      ?= 22
+REMOTE_DIR    ?= /var/www/ai-todo
+APP_PORT_ENV   = $(shell [ -f .env ] && grep -E '^[[:space:]]*(export[[:space:]]+)?APP_PORT[[:space:]]*=' .env | tail -1 | sed -E 's/^[^=]*=//; s/\#.*$$//' | tr -d '"'\''[:space:]')
+APP_PORT      ?= $(if $(APP_PORT_ENV),$(APP_PORT_ENV),8095)
 
 help: ## Daftar perintah
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "\033[36m%-12s\033[0m %s\n",$$1,$$2}'
@@ -37,6 +49,9 @@ down: ## Hentikan container (data tetap di volume)
 logs: ## Ikuti log
 	$(COMPOSE) logs -f
 
+ps: ## Status container
+	$(COMPOSE) ps
+
 backup: ## Salin database (aman saat berjalan) ke ./backups/
 	@mkdir -p $(BACKUP_DIR)
 	$(COMPOSE) exec -T aitodo aitodo backup /data/backup-$(TS).db
@@ -44,5 +59,23 @@ backup: ## Salin database (aman saat berjalan) ke ./backups/
 	$(COMPOSE) exec -T aitodo rm /data/backup-$(TS).db
 	@echo "Backup: $(BACKUP_DIR)/aitodo-$(TS).db"
 
-version: ## Tampilkan versi
-	@echo $(VERSION)
+version: ## Versi di repo + commit yang sedang ter-deploy
+	@echo "VERSION: $(VERSION)"
+	@git log -1 --format='commit : %h %s (%cr)'
+
+deploy: ## [DI VPS] Pull kode terbaru + backup + rebuild + health check + auto-rollback
+	DEPLOY_BRANCH=$(DEPLOY_BRANCH) ./scripts/deploy.sh
+
+deploy-remote: ## [DI LOKAL] Trigger deploy di VPS via SSH: make deploy-remote SSH_TARGET=user@ip
+	@if [ -z "$(SSH_TARGET)" ]; then \
+		echo "Gunakan: make deploy-remote SSH_TARGET=user@ip [SSH_PORT=22] [REMOTE_DIR=/var/www/ai-todo]"; \
+		exit 1; \
+	fi
+	ssh -p $(SSH_PORT) $(SSH_TARGET) "cd $(REMOTE_DIR) && DEPLOY_BRANCH=$(DEPLOY_BRANCH) ./scripts/deploy.sh"
+
+rollback: ## [DI VPS] Kembali ke commit sebelum deploy terakhir (atau: make rollback SHA=abc1234)
+	./scripts/rollback.sh $(SHA)
+
+health: ## Cek endpoint health app di localhost VPS
+	@curl -fsS --max-time 5 http://127.0.0.1:$(APP_PORT)/api/health && echo "" || \
+		(echo "Health check GAGAL di http://127.0.0.1:$(APP_PORT)/api/health"; exit 1)

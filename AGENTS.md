@@ -9,7 +9,8 @@ AI Todo: server Go + SQLite (`server/`), PWA Vue 3 (`web/`, hasil build ditanam 
 Perbarui `_todo/00-tracker.md` setiap tahapan selesai.
 
 **Agen yang memasang / memperbarui server di VPS: ikuti [`DEPLOY.md`](DEPLOY.md)** (termasuk aturan
-keamanannya di §0 dan titik "tanya pemilik").
+keamanannya di §0 dan titik "tanya pemilik"). Auto deploy dari GitHub Actions: [`CICD.md`](CICD.md)
+(`scripts/deploy.sh` — backup, health check, rollback otomatis; jangan hapus langkah-langkah itu).
 
 ## Cek sebelum commit
 
