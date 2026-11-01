@@ -1,15 +1,21 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
+  workflow_dispatch:
+  # Dipanggil oleh deploy.yml supaya deploy hanya jalan kalau CI hijau.
+  workflow_call:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   server:
+    name: Server (Go)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,15 +25,22 @@ jobs:
           cache-dependency-path: server/go.sum
       - name: gofmt
         working-directory: server
-        run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
-      - name: vet
+        run: |
+          out=$(gofmt -l .)
+          if [ -n "$out" ]; then
+            echo "File berikut belum di-gofmt (jalankan: gofmt -w server):"
+            echo "$out"
+            exit 1
+          fi
+      - name: go vet
         working-directory: server
         run: go vet ./...
-      - name: test
+      - name: go test
         working-directory: server
         run: go test -race ./...
 
   web:
+    name: Web (Vite)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -42,8 +55,11 @@ jobs:
         working-directory: web
 
   docker:
-    runs-on: ubuntu-latest
+    name: Docker build
     needs: [server, web]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # Build image persis seperti di VPS, supaya error Dockerfile ketahuan
+      # sebelum deploy menyentuh server produksi.
       - run: docker build --build-arg VERSION=$(cat VERSION) -t aitodo:ci .
