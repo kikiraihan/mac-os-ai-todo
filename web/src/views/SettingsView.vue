@@ -5,6 +5,7 @@ import { get, post, put, del } from '../api'
 import { state, toast, errorText, logout, loadMe } from '../store'
 import { timeAgo } from '../dates'
 import Icon from '../components/Icon.vue'
+import { pushState as readPushState, enablePush as turnOnPush, disablePush as turnOffPush, syncPush } from '../push'
 
 const router = useRouter()
 const displayName = ref(state.me.displayName)
@@ -26,39 +27,15 @@ async function loadSessions() {
   currentId.value = res.currentId
 }
 
+// Logika langganan ada di ../push.js (dipakai juga saat aplikasi dibuka untuk sinkron ulang).
 async function detectPush() {
-  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
-    pushState.value = 'unsupported'
-    return
-  }
-  if (Notification.permission === 'denied') {
-    pushState.value = 'denied'
-    return
-  }
-  const reg = await navigator.serviceWorker.getRegistration()
-  const sub = reg && (await reg.pushManager.getSubscription())
-  pushState.value = sub ? 'on' : 'off'
-}
-
-function b64ToBytes(b64) {
-  const pad = '='.repeat((4 - (b64.length % 4)) % 4)
-  const raw = atob((b64 + pad).replace(/-/g, '+').replace(/_/g, '/'))
-  return Uint8Array.from(raw, (c) => c.charCodeAt(0))
+  pushState.value = await readPushState()
 }
 
 async function enablePush() {
   try {
-    const perm = await Notification.requestPermission()
-    if (perm !== 'granted') {
-      pushState.value = perm === 'denied' ? 'denied' : 'off'
-      return
-    }
-    const { publicKey } = await get('/push/key')
-    const reg = await navigator.serviceWorker.ready
-    const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(publicKey) })
-    await post('/push/subscribe', sub.toJSON())
-    pushState.value = 'on'
-    toast('Notifikasi aktif di perangkat ini')
+    pushState.value = await turnOnPush()
+    if (pushState.value === 'on') toast('Notifikasi aktif di perangkat ini')
   } catch (e) {
     toast(errorText(e), 'error')
   }
@@ -66,12 +43,7 @@ async function enablePush() {
 
 async function disablePush() {
   try {
-    const reg = await navigator.serviceWorker.getRegistration()
-    const sub = reg && (await reg.pushManager.getSubscription())
-    if (sub) {
-      await post('/push/unsubscribe', { endpoint: sub.endpoint })
-      await sub.unsubscribe()
-    }
+    await turnOffPush()
     pushState.value = 'off'
   } catch (e) {
     toast(errorText(e), 'error')
@@ -80,6 +52,7 @@ async function disablePush() {
 
 async function testPush() {
   try {
+    await syncPush() // pastikan server masih punya langganan perangkat ini
     const res = await post('/push/test')
     toast(`Terkirim ke ${res.sent} perangkat`)
   } catch (e) {

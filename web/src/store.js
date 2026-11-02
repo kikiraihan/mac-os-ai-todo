@@ -1,5 +1,6 @@
 import { reactive } from 'vue'
 import { get, post, ApiError } from './api'
+import { syncPush } from './push'
 
 // Keadaan bersama aplikasi. Perubahan dari perangkat lain (Mac, HP lain)
 // datang lewat long-poll /api/changes, lalu daftar dimuat ulang.
@@ -84,6 +85,8 @@ export async function refreshData() {
 let syncController = null
 export function startSync() {
   stopSync()
+  // Sesi aktif: tautkan lagi langganan notifikasi perangkat ini ke server (lihat push.js).
+  syncPush().catch(() => {})
   const ctl = new AbortController()
   syncController = ctl
   ;(async () => {

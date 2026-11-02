@@ -31,6 +31,10 @@ function callApi(path, body) {
     credentials: 'same-origin',
     headers: { 'X-AITodo': '1', 'Content-Type': 'application/json' },
     body: JSON.stringify(body || {}),
+  }).then((res) => {
+    // fetch tidak gagal untuk 401/4xx/5xx; anggap gagal supaya aplikasi dibuka (mis. sesi habis → masuk lagi).
+    if (!res.ok) throw new Error('HTTP ' + res.status)
+    return res
   })
 }
 
@@ -60,4 +64,26 @@ self.addEventListener('notificationclick', (event) => {
   // Hanya buka rute di situs ini sendiri.
   const url = typeof d.url === 'string' && d.url.startsWith('/') && !d.url.startsWith('//') ? d.url : '/'
   event.waitUntil(openApp(url))
+})
+
+// Browser mengganti langganan (mis. Firefox memperbarui endpoint): daftarkan yang baru ke server.
+// Kalau gagal, aplikasi menyinkronkan ulang saat dibuka berikutnya (src/push.js → syncPush).
+self.addEventListener('pushsubscriptionchange', (event) => {
+  const old = event.oldSubscription
+  const opts = old && old.options ? old.options : null
+  event.waitUntil(
+    (event.newSubscription
+      ? Promise.resolve(event.newSubscription)
+      : opts
+        ? self.registration.pushManager.subscribe(opts)
+        : Promise.resolve(null)
+    )
+      .then((sub) =>
+        sub &&
+        callApi('/push/subscribe', sub.toJSON()).then(
+          () => old && old.endpoint && old.endpoint !== sub.endpoint && callApi('/push/unsubscribe', { endpoint: old.endpoint }),
+        ),
+      )
+      .catch(() => {}),
+  )
 })

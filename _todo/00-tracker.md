@@ -116,6 +116,24 @@ Rancangan: [`../docs/PRD.md`](../docs/PRD.md). Perbarui setiap tugas selesai.
 - [ ] Uji manual tab Todo di Mac sungguhan
 - [ ] Uji gestur geser di iPhone & Android sungguhan
 
+## v0.7.1 — bar undo Mac bisa ditutup & perbaikan notifikasi PWA
+
+- [x] Mac: tombol ✕ di bar "Aksi terakhir sudah dijalankan" — menutup bar tanpa membatalkan aksi (masih bisa
+      `/undo`); id kartu yang ditutup diingat (`LocalPrefs.dismissedUndoBatch`) supaya tidak muncul lagi
+- [x] Server push: klaim VAPID `sub` jadi `mailto:mailto:…` (webpush-go menambah awalan sendiri) → Apple
+      menolak 403; sekarang awalan dibuang (`subscriberClaim`). Langganan hanya dihapus saat 404/410, bukan
+      401/403 (dulu notifikasi diam-diam berhenti). Galat layanan push dicatat + dikembalikan ke "Kirim tes"
+- [x] Allowlist endpoint: Chrome baru memberi endpoint `*.google.com/fcm/send/…` (mis. jmt17.google.com) yang
+      dulu ditolak 400 → notifikasi di Chrome tidak bisa dinyalakan
+- [x] Web: `src/push.js` — langganan disinkron ulang ke server setiap app dibuka/masuk (langganan server ikut
+      terhapus saat sesi keluar/kedaluwarsa), ganti langganan kalau kunci VAPID server berubah, "Kirim tes"
+      sinkron dulu. Service worker: tombol Selesai/Tunda membuka app kalau API gagal (mis. 401),
+      `pushsubscriptionchange` mendaftarkan langganan baru. Tes `internal/push` (layanan push tiruan)
+- [x] E2E Chromium terhadap server asli: nyalakan → kirim tes ke FCM sungguhan (`sent: 1`) → push sampai ke
+      service worker (judul, isi, tombol Selesai / Tunda 10 mnt) → logout/login → sinkron otomatis → matikan
+- [ ] Uji manual di Mac sungguhan
+- [ ] Uji notifikasi di iPhone (PWA di Layar Utama) setelah deploy
+
 ## Berikutnya
 
 - [x] Deploy otomatis ke VPS (backup, health check, rollback) — `CICD.md`, diuji dengan docker tiruan
