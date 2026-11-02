@@ -84,6 +84,25 @@ Rancangan: [`../docs/PRD.md`](../docs/PRD.md). Perbarui setiap tugas selesai.
       sudah jalan tidak bisa di-undo lagi; disebut di teks konfirmasi Mac
 - [ ] Uji manual tombol & menu di Mac sungguhan
 
+## v0.6.0 — daftar todo Hari ini | Semua di tab Manual
+
+- [x] Tab Manual: filter kecil **Hari ini | Semua** (`NSSegmentedControl` kecil di bawah kartu tambah, dengan
+      jumlah). Hari ini (bawaan) = terlambat + hari ini + 3 pengingat berikutnya; Semua = semua todo terbuka
+      per tanggal (Besok, Rab 5 Nov, …) + tanpa tenggat, maks. 200 baris lalu tautan ke browser
+- [x] Pilihan filter diingat (`LocalPrefs.showAllTodos`); saat hari ini kosong ada tautan "Lihat N todo lainnya"
+- [x] `TodoBuckets.upcomingByDay` & `total` di `Client.swift` + tes klien
+- [x] AGENTS.md: prinsip desain gaya Apple (simpel, intuitif, rapi)
+- [x] Input chat Mac: ↩ kirim, ⇧↩ (atau ⌥↩) baris baru; kapsul input tumbuh sampai 6 baris lalu menggulir,
+      ikon & tombol kirim menempel di baris terakhir
+- [x] Mode ubah todo di tab Manual Mac: tahan ⌥ → ○ jadi ✎ (klik = ubah), klik dua kali judul, atau klik
+      kanan → Ubah… / Tandai selesai. Kartu ubah menggantikan barisnya: judul, kategori (combo box daftar
+      yang ada), prioritas, ☑ Tanggal (NSDatePicker + kalender), ☑ Jam (NSDatePicker 24 jam); ↩ simpan, esc batal.
+      Selama mengubah, sinkron tidak membangun ulang daftar. `Client.swift`: `updateTodo` (PUT) + tes klien
+- [x] Web: klik di mana saja pada kolom tanggal/jam membuka picker (`pickers.js`, desktop); pengingat
+      "Sekali" memakai satu datetime picker (`datetime-local`)
+- [x] AGENTS.md: aturan picker tanggal/jam & pola ⌥
+- [ ] Uji manual filter, input multi-baris, & mode ubah di Mac sungguhan
+
 ## Berikutnya
 
 - [x] Deploy otomatis ke VPS (backup, health check, rollback) — `CICD.md`, diuji dengan docker tiruan

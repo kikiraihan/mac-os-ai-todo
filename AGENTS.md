@@ -25,6 +25,29 @@ Tidak ada Mac di lingkungan agen cloud: bagian AppKit (`main.swift`) baru benar-
 oleh workflow `.github/workflows/mac.yml` (macOS). `Client.swift` wajib tetap **hanya Foundation**
 supaya bisa diuji di Linux.
 
+## Prinsip desain: gaya Apple
+
+Semua tampilan (aplikasi Mac & web) mengikuti gaya desain Apple (Human Interface Guidelines):
+**simpel, intuitif, rapi**.
+
+- **Simpel**: satu layar = satu tujuan utama. Tampilan bawaan menampilkan yang paling sering dipakai
+  (mis. todo hari ini); detail lain ada satu klik di belakang (filter, tab, menu), bukan ditumpuk.
+- **Intuitif**: pakai kontrol bawaan sistem (`NSSegmentedControl`, `NSPopUpButton`, `NSSwitch`, SF
+  Symbols, `NSAlert`) dan pola yang sudah dikenal pengguna macOS / Pengingat (Reminders). Label pendek
+  berbahasa Indonesia, tooltip & label aksesibilitas untuk tombol ikon. Aksi yang menghapus selalu
+  dikonfirmasi.
+- **Rapi**: jarak & margin konsisten (`PopoverController.inset`, kelipatan 4), warna sistem
+  (`labelColor`, `secondaryLabelColor`, `separatorColor`) + satu aksen (`Theme.accent`), mendukung
+  mode gelap. Jangan menambah warna, ukuran huruf, atau gaya tombol baru tanpa alasan.
+- **Tanggal & jam selalu lewat picker**: web memakai input native `date` / `time` / `datetime-local`
+  (klik di mana saja membuka picker — `web/src/pickers.js`), Mac memakai `NSDatePicker` (kalender
+  `presentsCalendarOverlay`, jam `.hourMinute`). Pengecualian yang disengaja: kartu tambah cepat di tab
+  Manual Mac (dropdown Hari ini/Besok/Lusa + kolom jam) — jangan diubah tanpa izin pemilik.
+- Aksi alternatif mengikuti pola macOS: tahan ⌥ untuk menampilkan aksi kedua (mis. ○ selesai → ✎
+  ubah), selalu dengan jalan lain yang mudah ditemukan (klik dua kali, klik kanan).
+- Fitur baru tidak boleh membuat tampilan yang sudah ada lebih ramai: kalau perlu ruang, sembunyikan
+  di balik filter/tab kecil dengan bawaan yang paling ringkas, dan ingat pilihan pengguna.
+
 ## Aturan yang tidak boleh dilonggarkan
 
 - **AI tidak pernah menulis database langsung.** Semua aksi lewat `internal/core` (validasi yang

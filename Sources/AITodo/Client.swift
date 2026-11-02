@@ -260,6 +260,12 @@ final class APIClient {
         send("POST", "/todos", body: ["title": title, "dueDate": dueDate, "dueTime": dueTime], as: TodoResult.self, completion: c)
     }
 
+    /// Ubah sebagian kolom todo (PUT /api/todos/{id}; kolom yang tidak dikirim tidak berubah).
+    /// Kunci: title, list, priority (low/normal/high), dueDate (YYYY-MM-DD atau ""), dueTime (HH:MM atau "").
+    func updateTodo(_ id: Int64, _ fields: [String: String], _ c: @escaping (Result<TodoResult, APIError>) -> Void) {
+        send("PUT", "/todos/\(id)", body: fields, as: TodoResult.self, completion: c)
+    }
+
     func complete(todo id: Int64, _ c: @escaping (Result<TodoResult, APIError>) -> Void) {
         send("POST", "/todos/\(id)/complete", as: TodoResult.self, completion: c)
     }
@@ -400,6 +406,18 @@ struct TodoBuckets {
         today.sort(by: byDue)
         upcoming.sort(by: byDue)
     }
+
+    /// Todo mendatang dikelompokkan per tanggal (urut naik) untuk tampilan "Semua" di tab Manual.
+    var upcomingByDay: [(date: String, todos: [Todo])] {
+        var out: [(date: String, todos: [Todo])] = []
+        for t in upcoming {
+            if out.last?.date == t.dueDate { out[out.count - 1].todos.append(t) } else { out.append((t.dueDate, [t])) }
+        }
+        return out
+    }
+
+    /// Jumlah semua todo terbuka.
+    var total: Int { overdue.count + today.count + upcoming.count + noDate.count }
 }
 
 // MARK: - Notifikasi lokal yang perlu dijadwalkan

@@ -82,6 +82,9 @@ check(buckets.overdue.contains { $0.title.hasPrefix("Bayar listrik") }, "kelompo
 check(buckets.today.contains { $0.title.hasPrefix("Beli galon") }, "kelompok hari ini")
 check(buckets.upcoming.contains { $0.id == t1.todo.id }, "kelompok akan datang")
 check(buckets.badge >= 2, "badge = hari ini + terlambat (\(buckets.badge))")
+check(buckets.upcomingByDay.first?.date == tomorrow && buckets.upcomingByDay.first?.todos.contains { $0.id == t1.todo.id } == true,
+      "tampilan Semua: todo mendatang dikelompokkan per tanggal")
+check(buckets.total == buckets.badge + buckets.upcoming.count + buckets.noDate.count, "jumlah semua todo terbuka")
 
 // asisten tanpa AI: shortcut membuat pengingat lewat chat tidak mungkin, jadi pakai /todo + undo
 guard case .success(let rep) = wait({ api.chat("/todo tes dari Mac", $0) }) else { print("chat gagal"); exit(1) }
@@ -102,6 +105,19 @@ guard case .success(let up) = wait({ api.upcoming(hours: 48, $0) }) else { exit(
 let plan = NotificationPlan.build(occurrences: up.occurrences, todos: r1.todos, prefs: me.prefs, tz: tz, now: now)
 let due = plan.first { $0.todoId == t1.todo.id }
 check(due.map { Clock.hm($0.fireAt, tz) == "08:50" } ?? false, "notifikasi tenggat dijadwalkan 10 menit sebelumnya")
+
+// ubah todo dari tab Manual (mode ubah ⌥)
+if case .success(let ed) = wait({ api.updateTodo(t1.todo.id, ["title": "Telpon bengkel (diubah)", "list": "Rumah",
+                                                             "dueDate": today, "dueTime": "14:30", "priority": "high"], $0) }) {
+    check(ed.todo.title == "Telpon bengkel (diubah)" && ed.todo.list == "Rumah" && ed.todo.dueDate == today
+          && ed.todo.dueTime == "14:30" && ed.todo.priority == "high", "ubah judul, kategori, tanggal, jam, prioritas")
+} else { check(false, "ubah todo") }
+if case .success(let ed) = wait({ api.updateTodo(t1.todo.id, ["dueDate": "", "dueTime": ""], $0) }) {
+    check(ed.todo.dueDate.isEmpty && ed.todo.dueTime.isEmpty && ed.todo.list == "Rumah", "hapus tenggat, kolom lain tetap")
+} else { check(false, "hapus tenggat") }
+if case .failure = wait({ api.updateTodo(t1.todo.id, ["title": "  "], $0) }) {
+    check(true, "judul kosong ditolak server")
+} else { check(false, "judul kosong ditolak server") }
 
 // selesaikan todo
 if case .success(let done) = wait({ api.complete(todo: t1.todo.id, $0) }) {

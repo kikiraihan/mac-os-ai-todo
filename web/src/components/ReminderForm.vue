@@ -14,8 +14,8 @@ const title = ref(r?.title || '')
 const message = ref(r?.message || '')
 const todoId = ref(r?.todoId || 0)
 const kind = ref(s.kind || 'once')
-const atDate = ref(s.at ? s.at.slice(0, 10) : addDays(today(), 0))
-const atTime = ref(s.at ? s.at.slice(11, 16) : '09:00')
+// Sekali: satu datetime picker (nilai "YYYY-MM-DDTHH:MM", zona pengguna — sama dengan format API)
+const at = ref(s.at ? s.at.slice(0, 16) : `${addDays(today(), 0)}T09:00`)
 const time = ref(s.time || '08:00')
 const every = ref(s.every || 1)
 const weekdays = ref(s.weekdays ? [...s.weekdays] : [1])
@@ -41,7 +41,7 @@ function toggleDay(d) {
 
 function buildSchedule() {
   const k = kind.value
-  if (k === 'once') return { kind: 'once', at: `${atDate.value}T${atTime.value}` }
+  if (k === 'once') return { kind: 'once', at: at.value }
   const sch = { kind: k }
   if (k === 'daily') Object.assign(sch, { time: time.value, every: Number(every.value) })
   if (k === 'weekly') Object.assign(sch, { time: time.value, every: Number(every.value), weekdays: [...weekdays.value].sort() })
@@ -113,10 +113,9 @@ function onTodoPick() {
         </select>
       </label>
 
-      <div v-if="kind === 'once'" class="row">
-        <label class="field grow"><span>Tanggal</span><input v-model="atDate" type="date" required /></label>
-        <label class="field grow"><span>Jam</span><input v-model="atTime" type="time" required /></label>
-      </div>
+      <label v-if="kind === 'once'" class="field"><span>Tanggal &amp; jam</span>
+        <input v-model="at" type="datetime-local" required />
+      </label>
 
       <template v-else>
         <div v-if="kind !== 'interval'" class="row">
