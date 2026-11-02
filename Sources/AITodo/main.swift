@@ -602,6 +602,7 @@ final class PopoverController: NSViewController {
     private var pending: BatchView?
     private var undoable: BatchView?
     private var busy = false { didSet { updateControls() } }
+    private lazy var clearButton = UI.iconButton("trash", tip: "Hapus riwayat chat", self, #selector(confirmClearHistory))
 
     // Manual
     private let titleField = NSTextField()
@@ -640,7 +641,7 @@ final class PopoverController: NSViewController {
         segment.translatesAutoresizingMaskIntoConstraints = false
         let web = UI.iconButton("globe", tip: "Buka AI Todo di browser", self, #selector(openWeb))
         let gear = UI.iconButton("gearshape", tip: "Pengaturan (⌘,)", self, #selector(openSettings))
-        let header = UI.stack([segment, NSView(), web, gear], vertical: false, spacing: 4)
+        let header = UI.stack([segment, NSView(), clearButton, web, gear], vertical: false, spacing: 4)
         header.translatesAutoresizingMaskIntoConstraints = false
         let line = NSBox()
         line.boxType = .separator
@@ -831,6 +832,8 @@ final class PopoverController: NSViewController {
         [confirmButton, rejectButton, undoButton].forEach { $0.isEnabled = !busy }
         input.isEnabled = !busy
         sendBox.alphaValue = busy ? 0.4 : 1
+        // Hapus riwayat: hanya di tab Chat, saat terhubung, dan tidak sedang menunggu server
+        clearButton.isEnabled = !busy && store.connected && mode == .chat
     }
 
     private func setBatch(_ b: BatchView?) {
@@ -1112,6 +1115,7 @@ final class PopoverController: NSViewController {
         }
         syncLabel.stringValue = app.syncStatus
         if online { rebuildList() }
+        updateControls()
     }
 
     func select(_ m: Mode) {
@@ -1135,6 +1139,41 @@ final class PopoverController: NSViewController {
     @objc private func segmentChanged() {
         select(Mode(rawValue: segment.selectedSegment) ?? .chat)
         didShow()
+    }
+
+    /// Konfirmasi lalu hapus seluruh riwayat chat (DELETE /api/chat, sama dengan web → Hapus riwayat).
+    /// Server ikut menghapus semua kartu aksi: yang menunggu konfirmasi batal tanpa dijalankan,
+    /// dan aksi yang sudah dijalankan tidak bisa di-undo lagi (todo/pengingatnya tetap ada).
+    @objc func confirmClearHistory() {
+        guard store.connected, !busy, mode == .chat else { return }
+        var text = "Riwayat juga terhapus di web. Todo, pengingat, dan Ingatan AI tidak terhapus."
+        if pending != nil { text += "\n\nAksi yang menunggu konfirmasi ikut dibatalkan (tidak dijalankan)." }
+        if undoable != nil { text += "\n\nAksi terakhir tidak bisa dibatalkan (undo) lagi; hasilnya tetap ada." }
+        let a = NSAlert()
+        a.messageText = "Hapus semua riwayat chat?"
+        a.informativeText = text
+        a.alertStyle = .warning
+        a.addButton(withTitle: "Hapus")
+        a.addButton(withTitle: "Batal")
+        a.buttons.first?.hasDestructiveAction = true
+        NSApp.activate(ignoringOtherApps: true)
+        guard a.runModal() == .alertFirstButtonReturn else { return }
+        busy = true
+        store.api.clearChat { [weak self] r in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.busy = false
+                switch r {
+                case .success:
+                    self.pending = nil
+                    self.undoable = nil
+                    self.updateControls()
+                    self.loadHistory() // riwayat kosong → sapaan awal
+                case .failure(let e):
+                    showError("Gagal menghapus riwayat chat", e.description)
+                }
+            }
+        }
     }
 
     @objc private func openWeb() { app.openWebPage(mode == .chat ? "/" : "/todo") }
@@ -2008,6 +2047,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ask.keyEquivalentModifierMask = [.command, .option]
         contextMenu.addItem(ask)
         contextMenu.addItem(item("Tambah todo manual", #selector(openManual)))
+        let clear = item("Hapus riwayat chat…", #selector(clearChatHistory))
+        clear.isEnabled = store.connected
+        contextMenu.addItem(clear)
         contextMenu.addItem(item("Buka AI Todo di browser", #selector(openWeb)))
         contextMenu.addItem(.separator())
         contextMenu.addItem(item("Pengaturan…", #selector(openSettings), key: ","))
@@ -2032,6 +2074,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func openChat() { showPopover(.chat) }
     @objc func openManual() { showPopover(.manual) }
+
+    /// Menu klik kanan: buka popover tab Chat, lalu konfirmasi yang sama dengan tombol tempat sampah.
+    @objc func clearChatHistory() {
+        showPopover(.chat)
+        DispatchQueue.main.async { [weak self] in self?.panel.confirmClearHistory() }
+    }
 
     @objc func openSettings() {
         closePopover()

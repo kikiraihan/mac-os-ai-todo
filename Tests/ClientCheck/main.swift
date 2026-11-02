@@ -92,6 +92,11 @@ if let b = rep.batch, case .success(let u) = wait({ api.batch(b.id, "undo", $0) 
 guard case .success(let hist) = wait(api.chatHistory) else { exit(1) }
 check(hist.messages.count >= 2 && !hist.batches.isEmpty, "riwayat chat + kartu aksi")
 
+// hapus riwayat chat (tombol tempat sampah di popover)
+if case .success = wait(api.clearChat), case .success(let empty) = wait(api.chatHistory) {
+    check(empty.messages.count == 0 && empty.batches.isEmpty, "hapus riwayat chat → riwayat & kartu aksi kosong")
+} else { check(false, "hapus riwayat chat") }
+
 // rencana notifikasi: tenggat todo besok 09:00 → 08:50
 guard case .success(let up) = wait({ api.upcoming(hours: 48, $0) }) else { exit(1) }
 let plan = NotificationPlan.build(occurrences: up.occurrences, todos: r1.todos, prefs: me.prefs, tz: tz, now: now)

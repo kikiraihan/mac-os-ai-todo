@@ -308,6 +308,12 @@ final class APIClient {
         raw("GET", "/memory/export") { r in c(r.map { String(decoding: $0, as: UTF8.self) }) }
     }
 
+    /// Hapus seluruh riwayat chat pengguna ini (sama dengan web → Hapus riwayat). Server juga menghapus
+    /// semua kartu aksi: yang menunggu konfirmasi batal (tidak dijalankan), yang sudah jalan tidak bisa di-undo lagi.
+    func clearChat(_ c: @escaping (Result<Ok, APIError>) -> Void) {
+        send("DELETE", "/chat", as: Ok.self, completion: c)
+    }
+
     func logout(_ c: @escaping (Result<Ok, APIError>) -> Void) {
         send("POST", "/logout", as: Ok.self, completion: c)
     }
