@@ -26,10 +26,10 @@ func parseDay(s string, loc *time.Location) (time.Time, bool) {
 }
 
 // GET /api/admin/ai-calls?q=&provider=&feature=&status=ok|error&from=YYYY-MM-DD&to=YYYY-MM-DD&page=&size=
-// from/to memakai zona waktu admin; to inklusif sampai akhir hari.
+// from/to memakai zona waktu server; to inklusif sampai akhir hari.
 func (s *Server) adminListAICalls(w http.ResponseWriter, r *http.Request) {
 	v := r.URL.Query()
-	loc := s.loc(userOf(r))
+	loc := s.Cfg.DefaultTZ // akun admin tidak punya zona sendiri: pakai zona server
 	f := db.AICallFilter{Text: v.Get("q"), Provider: v.Get("provider"), Feature: v.Get("feature"), Status: v.Get("status"),
 		Page: atoi(v.Get("page")), Size: atoi(v.Get("size"))}
 	if f.Size <= 0 {

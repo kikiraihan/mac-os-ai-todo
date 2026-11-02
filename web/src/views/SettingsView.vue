@@ -183,12 +183,8 @@ onMounted(() => {
 
     <nav class="card more-menu" aria-label="Menu lain">
       <RouterLink to="/ingatan" class="more-link"><Icon name="brain" :size="18" /> Ingatan AI</RouterLink>
-      <template v-if="state.me.role === 'admin'">
-        <RouterLink to="/admin" class="more-link"><Icon name="chart" :size="18" /> Admin · Ringkasan</RouterLink>
-        <RouterLink to="/admin/pengguna" class="more-link"><Icon name="users" :size="18" /> Admin · Pengguna</RouterLink>
-        <RouterLink to="/admin/model" class="more-link"><Icon name="cpu" :size="18" /> Admin · Model AI</RouterLink>
-        <RouterLink to="/admin/asisten" class="more-link"><Icon name="spark" :size="18" /> Admin · Asisten</RouterLink>
-      </template>
+      <!-- Mode admin = akun terpisah; tautan hanya tampil kalau sudah masuk sebagai admin di browser ini. -->
+      <RouterLink v-if="state.admin" to="/admin" class="more-link"><Icon name="swap" :size="18" /> Ke mode admin</RouterLink>
     </nav>
 
     <section class="card">
@@ -228,7 +224,7 @@ onMounted(() => {
           </select>
         </label>
       </div>
-      <p class="hint">Username: <b>{{ state.me.username }}</b> · peran: {{ state.me.role }}</p>
+      <p class="hint">Username: <b>{{ state.me.username }}</b></p>
       <div class="actions"><button class="btn primary sm" @click="saveProfile">Simpan profil</button></div>
     </section>
 

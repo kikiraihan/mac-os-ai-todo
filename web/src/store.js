@@ -5,6 +5,8 @@ import { get, post, ApiError } from './api'
 // datang lewat long-poll /api/changes, lalu daftar dimuat ulang.
 export const state = reactive({
   me: null,
+  // Akun admin (terpisah dari akun pengguna). null = belum masuk mode admin.
+  admin: null,
   prefs: null,
   timezone: '',
   todos: [],
@@ -46,6 +48,29 @@ export async function loadMe() {
     }
     throw e
   }
+}
+
+// loadAdmin: sesi admin memakai cookie sendiri (Path=/api/admin); 401 = belum masuk.
+export async function loadAdmin() {
+  try {
+    state.admin = (await get('/admin/me')).admin
+    return true
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 401) {
+      state.admin = null
+      return false
+    }
+    throw e
+  }
+}
+
+export async function adminLogout() {
+  try {
+    await post('/admin/logout')
+  } catch {
+    /* sesi mungkin sudah habis */
+  }
+  state.admin = null
 }
 
 export async function refreshData() {

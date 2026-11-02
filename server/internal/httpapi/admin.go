@@ -19,6 +19,9 @@ import (
 
 var usernamePattern = regexp.MustCompile(`^[a-zA-Z0-9._-]{3,32}$`)
 
+// ValidUsername dipakai juga oleh perintah CLI `aitodo admin`.
+func ValidUsername(s string) bool { return usernamePattern.MatchString(s) }
+
 func (s *Server) assistantSettings() assistant.Settings { return assistant.LoadSettings(s.DB) }
 
 func (s *Server) adminStats(w http.ResponseWriter, r *http.Request) {
@@ -54,14 +57,11 @@ func (s *Server) adminListUsers(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"users": users})
 }
 
-func validRole(role string) bool { return role == db.RoleAdmin || role == db.RoleUser }
-
 func (s *Server) adminCreateUser(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Username    string `json:"username"`
 		DisplayName string `json:"displayName"`
 		Password    string `json:"password"`
-		Role        string `json:"role"`
 		Timezone    string `json:"timezone"`
 	}
 	if !decode(w, r, &in) {
@@ -70,13 +70,6 @@ func (s *Server) adminCreateUser(w http.ResponseWriter, r *http.Request) {
 	in.Username = strings.TrimSpace(in.Username)
 	if !usernamePattern.MatchString(in.Username) {
 		writeErr(w, http.StatusBadRequest, "username 3–32 karakter: huruf, angka, titik, minus, garis bawah")
-		return
-	}
-	if in.Role == "" {
-		in.Role = db.RoleUser
-	}
-	if !validRole(in.Role) {
-		writeErr(w, http.StatusBadRequest, "role harus admin atau user")
 		return
 	}
 	if in.Timezone != "" {
@@ -103,27 +96,12 @@ func (s *Server) adminCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u, err := s.DB.CreateUser(db.User{Username: in.Username, DisplayName: strings.TrimSpace(in.DisplayName), PasswordHash: hash,
-		Role: in.Role, Timezone: in.Timezone})
+		Timezone: in.Timezone})
 	if err != nil {
 		fail(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"user": u})
-}
-
-// lastAdminGuard menolak perubahan yang membuat tidak ada admin aktif tersisa.
-func (s *Server) lastAdminGuard(target db.User, stillActiveAdmin bool) error {
-	if target.Role != db.RoleAdmin || target.Disabled || stillActiveAdmin {
-		return nil
-	}
-	n, err := s.DB.CountActiveAdmins()
-	if err != nil {
-		return err
-	}
-	if n <= 1 {
-		return errors.New("harus ada minimal satu admin aktif")
-	}
-	return nil
 }
 
 func (s *Server) adminUpdateUser(w http.ResponseWriter, r *http.Request) {
@@ -134,7 +112,6 @@ func (s *Server) adminUpdateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	var in struct {
 		DisplayName *string `json:"displayName"`
-		Role        *string `json:"role"`
 		Disabled    *bool   `json:"disabled"`
 		Timezone    *string `json:"timezone"`
 		Password    *string `json:"password"`
@@ -155,13 +132,6 @@ func (s *Server) adminUpdateUser(w http.ResponseWriter, r *http.Request) {
 		}
 		next.DisplayName = strings.TrimSpace(*in.DisplayName)
 	}
-	if in.Role != nil {
-		if !validRole(*in.Role) {
-			writeErr(w, http.StatusBadRequest, "role harus admin atau user")
-			return
-		}
-		next.Role = *in.Role
-	}
 	if in.Disabled != nil {
 		next.Disabled = *in.Disabled
 	}
@@ -173,14 +143,6 @@ func (s *Server) adminUpdateUser(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		next.Timezone = *in.Timezone
-	}
-	if id == userOf(r).ID && (next.Disabled || next.Role != db.RoleAdmin) {
-		writeErr(w, http.StatusBadRequest, "tidak bisa menonaktifkan atau menurunkan akun sendiri")
-		return
-	}
-	if err := s.lastAdminGuard(u, next.Role == db.RoleAdmin && !next.Disabled); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
 	}
 	if in.Password != nil && *in.Password != "" {
 		if err := CheckPassword(*in.Password); err != nil {
@@ -214,17 +176,8 @@ func (s *Server) adminDeleteUser(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "id tidak valid")
 		return
 	}
-	if id == userOf(r).ID {
-		writeErr(w, http.StatusBadRequest, "tidak bisa menghapus akun sendiri")
-		return
-	}
-	u, err := s.DB.GetUser(id)
-	if err != nil {
+	if _, err := s.DB.GetUser(id); err != nil {
 		fail(w, err)
-		return
-	}
-	if err := s.lastAdminGuard(u, false); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if err := s.DB.DeleteUser(id); err != nil {
@@ -434,7 +387,7 @@ func (s *Server) adminTestModel(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
-	ctx = ai.WithCaller(ctx, ai.Caller{UserID: userOf(r).ID, Feature: "admin.tes-model"})
+	ctx = ai.WithCaller(ctx, ai.Caller{Feature: "admin.tes-model"})
 	res, err := s.AI.Chat(ctx, ai.ChatRequest{Provider: m.Provider, Model: m.ModelID, ExtraBody: m.ExtraBody, MaxTokens: 400, JSON: true,
 		Messages: []ai.Message{
 			{Role: "system", Content: `Balas hanya dengan objek JSON {"reply": "...", "actions": []}.`},
@@ -478,7 +431,7 @@ func (s *Server) adminRemoteModels(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
-	ctx = ai.WithCaller(ctx, ai.Caller{UserID: userOf(r).ID, Feature: "admin.daftar-model"})
+	ctx = ai.WithCaller(ctx, ai.Caller{Feature: "admin.daftar-model"})
 	list, err := s.AI.ListModels(ctx, provider)
 	if err != nil {
 		log.Printf("ai: daftar model %s gagal: %v", provider, err) // tampil di Admin → System Log

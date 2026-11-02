@@ -139,8 +139,20 @@ Di log harus ada:
 
 Kalau log berisi `ADMIN_PASSWORD masih password contoh` → kembali ke §4.
 
-> Akun admin hanya dibuat **sekali**, saat database masih kosong. Setelah itu mengganti
-> `ADMIN_PASSWORD` di `.env` tidak berpengaruh — password diganti dari aplikasi (Pengaturan).
+> Akun admin awal hanya dibuat **sekali**, saat belum ada akun admin. Setelah itu mengganti
+> `ADMIN_PASSWORD` di `.env` tidak berpengaruh — password diganti dari aplikasi (`/admin` → Akun admin).
+>
+> Akun **admin terpisah dari akun pengguna** (sejak v0.5.0): admin hanya mengelola server dan tidak
+> punya todo. Admin baru hanya bisa dibuat dari server atau oleh admin lain (Admin → Akun admin):
+>
+> ```bash
+> docker compose exec aitodo aitodo admin <username>   # buat admin / reset password-nya
+> ```
+>
+> Password diambil dari `ADMIN_PASSWORD` kalau diisi, kalau tidak dibuat acak dan dicetak sekali.
+> Saat memperbarui dari versi < 0.5.0, akun ber-peran admin otomatis dipisah: akun admin baru dengan
+> username & password yang sama, sedangkan akun lamanya tetap sebagai pengguna biasa (todo, chat,
+> ingatan, dan token Mac tidak berubah). Pemilik cukup masuk sekali lagi di `/admin`.
 
 ## 6a. nginx host + HTTPS (pola VPS yang sudah punya nginx)
 
@@ -203,7 +215,7 @@ Laporkan (tanpa menampilkan password maupun key):
 1. URL aplikasi: `https://DOMAIN`.
 2. Username admin, dan bahwa password admin awal ada di server:
    `sudo grep '^ADMIN_PASSWORD=' /var/www/ai-todo/.env` — pemilik membacanya sendiri, lalu
-   **segera mengganti password** di aplikasi (Pengaturan → Ganti password).
+   **segera mengganti password** di `https://DOMAIN/admin` → Akun admin → Ganti password.
 3. Setelah pemilik berhasil login dan mengganti password, `ADMIN_PASSWORD` di `.env` boleh
    dikosongkan (tidak dipakai lagi) — tanyakan dulu ke pemilik.
 4. Provider AI yang key-nya terpasang. Langkah pemilik berikutnya:
@@ -212,7 +224,8 @@ Laporkan (tanpa menampilkan password maupun key):
 5. Langkah pemilik untuk notifikasi: buka situs di HP → install (Android: tombol install browser;
    iPhone: Bagikan → Tambahkan ke Layar Utama, lalu buka dari ikon) → Pengaturan → Nyalakan
    notifikasi → Kirim tes.
-6. Pengguna lain dibuat pemilik lewat **Admin → Pengguna**.
+6. Akun pengguna (termasuk milik pemilik sendiri untuk memakai todo — boleh username yang sama
+   dengan admin, password sebaiknya beda) dibuat lewat **Admin → Pengguna**.
 
 ## 9. Backup
 

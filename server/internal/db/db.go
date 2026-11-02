@@ -51,6 +51,29 @@ CREATE TABLE IF NOT EXISTS sessions (
 	expires_at TEXT NOT NULL
 );
 
+-- Akun admin terpisah dari akun pengguna: tabel, sesi, dan cookie sendiri.
+-- Admin tidak punya todo/chat/ingatan; pengguna tidak pernah bisa menjadi admin
+-- (admin hanya dibuat dari server — env/CLI — atau oleh admin lain).
+CREATE TABLE IF NOT EXISTS admins (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+	display_name TEXT NOT NULL DEFAULT '',
+	password_hash TEXT NOT NULL,
+	disabled INTEGER NOT NULL DEFAULT 0,
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS admin_sessions (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	admin_id INTEGER NOT NULL REFERENCES admins(id) ON DELETE CASCADE,
+	token_hash TEXT NOT NULL UNIQUE,
+	user_agent TEXT NOT NULL DEFAULT '',
+	created_at TEXT NOT NULL,
+	last_seen_at TEXT NOT NULL,
+	expires_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS settings (
 	key TEXT PRIMARY KEY,
 	value TEXT NOT NULL
@@ -211,7 +234,12 @@ func Open(path string) (*DB, error) {
 		sqlDB.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
-	return &DB{sqlDB}, nil
+	d := &DB{sqlDB}
+	if err := d.splitAdmins(); err != nil {
+		sqlDB.Close()
+		return nil, fmt.Errorf("migrate admin: %w", err)
+	}
+	return d, nil
 }
 
 // Tx menjalankan f dalam satu transaksi; error dari f membatalkan semuanya.

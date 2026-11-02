@@ -6,7 +6,9 @@ import Modal from '../../components/Modal.vue'
 import Icon from '../../components/Icon.vue'
 
 const users = ref([])
-const form = ref(null) // { id?, username, displayName, role, password, disabled }
+const form = ref(null) // { id?, username, displayName, password, disabled }
+// Akun pengguna dengan username sama seperti admin yang sedang masuk (orang yang sama, akun terpisah).
+const mine = (u) => state.admin && u.username.toLowerCase() === state.admin.username.toLowerCase()
 const error = ref('')
 
 async function load() {
@@ -15,11 +17,11 @@ async function load() {
 
 function openNew() {
   error.value = ''
-  form.value = { username: '', displayName: '', role: 'user', password: '', disabled: false }
+  form.value = { username: '', displayName: '', password: '', disabled: false }
 }
 function openEdit(u) {
   error.value = ''
-  form.value = { id: u.id, username: u.username, displayName: u.displayName, role: u.role, password: '', disabled: u.disabled }
+  form.value = { id: u.id, username: u.username, displayName: u.displayName, password: '', disabled: u.disabled }
 }
 
 async function save() {
@@ -27,7 +29,7 @@ async function save() {
   const f = form.value
   try {
     if (f.id) {
-      const body = { displayName: f.displayName, role: f.role, disabled: f.disabled }
+      const body = { displayName: f.displayName, disabled: f.disabled }
       if (f.password) body.password = f.password
       await put(`/admin/users/${f.id}`, body)
     } else {
@@ -60,19 +62,20 @@ onMounted(() => load().catch((e) => toast(errorText(e), 'error')))
       <h1>Pengguna</h1>
       <button class="btn primary" @click="openNew"><Icon name="plus" :size="18" /> Pengguna baru</button>
     </div>
-    <p class="muted small">Setiap pengguna punya todo, pengingat, chat, dan ingatan AI sendiri. Admin tidak bisa membaca isi milik pengguna lain.</p>
+    <p class="muted small">Setiap pengguna punya todo, pengingat, chat, dan ingatan AI sendiri. Admin tidak bisa membaca isi milik pengguna lain.
+      Akun pengguna tidak pernah bisa menjadi admin; akun admin dikelola di <RouterLink to="/admin/akun">Akun admin</RouterLink>.
+      Untuk memakai todo sendiri, buat akun pengguna di sini (boleh dengan username yang sama dengan akun admin).</p>
     <div class="card scroll-x">
       <table class="table">
-        <thead><tr><th>Username</th><th>Nama</th><th>Peran</th><th>Status</th><th></th></tr></thead>
+        <thead><tr><th>Username</th><th>Nama</th><th>Status</th><th></th></tr></thead>
         <tbody>
           <tr v-for="u in users" :key="u.id">
-            <td>{{ u.username }} <span v-if="u.id === state.me.id" class="tag accent">kamu</span></td>
+            <td>{{ u.username }} <span v-if="mine(u)" class="tag accent">akun pengguna kamu</span></td>
             <td>{{ u.displayName }}</td>
-            <td><span class="tag" :class="u.role === 'admin' ? 'accent' : ''">{{ u.role }}</span></td>
             <td><span class="tag" :class="u.disabled ? 'danger' : 'ok'">{{ u.disabled ? 'nonaktif' : 'aktif' }}</span></td>
             <td class="row">
               <button class="icon-btn" aria-label="Ubah" @click="openEdit(u)"><Icon name="edit" :size="18" /></button>
-              <button v-if="u.id !== state.me.id" class="icon-btn" aria-label="Hapus" @click="remove(u)"><Icon name="trash" :size="18" /></button>
+              <button class="icon-btn" aria-label="Hapus" @click="remove(u)"><Icon name="trash" :size="18" /></button>
             </td>
           </tr>
         </tbody>
@@ -86,16 +89,10 @@ onMounted(() => load().catch((e) => toast(errorText(e), 'error')))
           <input v-model="form.username" type="text" pattern="[a-zA-Z0-9._\-]{3,32}" required autocapitalize="off" />
         </label>
         <label class="field"><span>Nama tampilan</span><input v-model="form.displayName" type="text" maxlength="60" /></label>
-        <label class="field"><span>Peran</span>
-          <select v-model="form.role" :disabled="form.id === state.me.id">
-            <option value="user">user — hanya menu pengguna</option>
-            <option value="admin">admin — juga menu admin</option>
-          </select>
-        </label>
         <label class="field"><span>{{ form.id ? 'Reset password (kosongkan bila tidak diganti)' : 'Password (min. 10 karakter)' }}</span>
           <input v-model="form.password" type="password" minlength="10" autocomplete="new-password" :required="!form.id" />
         </label>
-        <label v-if="form.id && form.id !== state.me.id" class="check"><input v-model="form.disabled" type="checkbox" /> Nonaktifkan akun (langsung keluar dari semua perangkat)</label>
+        <label v-if="form.id" class="check"><input v-model="form.disabled" type="checkbox" /> Nonaktifkan akun (langsung keluar dari semua perangkat)</label>
       </form>
       <template #footer>
         <button class="btn" type="button" @click="form = null">Batal</button>

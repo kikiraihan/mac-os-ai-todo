@@ -56,10 +56,25 @@ lampiran, pengingat via WhatsApp/Telegram/email, aplikasi native iOS/Android.
 
 ## 3. Pengguna & peran
 
-| Peran | Bisa |
+| Akun | Bisa |
 |---|---|
-| **user** | menu pengguna: Asisten (chat), Todo, Pengingat, Ingatan AI, Pengaturan (profil, password, notifikasi, perangkat & token Mac) |
-| **admin** | semua menu pengguna + menu admin: Ringkasan, Pengguna, Model AI, Asisten |
+| **pengguna** (`/`) | Asisten (chat), Todo, Pengingat, Ingatan AI, Pengaturan (profil, password, notifikasi, perangkat & token Mac) |
+| **admin** (`/admin`) | Ringkasan, Pengguna, Model AI, Asisten, AI Call Log, System Log, Akun admin — **tanpa** todo/chat/ingatan |
+
+Sejak v0.5.0 akun admin **terpisah** dari akun pengguna: tabel `admins` + `admin_sessions`, cookie
+`aitodo_admin` (`Path=/api/admin`, HttpOnly, Secure, SameSite=Strict), token `aia_…`, tanpa Bearer
+(aplikasi Mac tidak punya akses admin). Endpoint pengguna tidak pernah menerima sesi admin dan
+sebaliknya. Tidak ada endpoint pengguna yang bisa membuat admin: admin hanya dibuat dari server
+(`ADMIN_USERNAME`/`ADMIN_PASSWORD` saat belum ada admin, atau `aitodo admin <username>`) atau oleh
+admin lain (Admin → Akun admin). Minimal satu admin aktif selalu tersisa.
+
+Satu orang boleh punya akun admin **dan** akun pengguna dengan username yang sama; web lalu bisa
+berpindah mode (sidebar → *Ke mode admin* / *Ke mode pengguna*). Masing-masing tetap login sendiri,
+jadi password pengguna tidak pernah membuka mode admin.
+
+Migrasi dari < v0.5.0 (`db.splitAdmins`, sekali): setiap `users.role = 'admin'` disalin ke `admins`
+(username, nama, hash password sama), lalu semua `users.role` menjadi `user` — todo, chat, ingatan,
+dan sesi perangkat tetap milik akun pengguna itu.
 
 Setiap pengguna punya todo, pengingat, chat, dan ingatan **sendiri**. Admin mengelola akun dan AI,
 tapi **tidak** punya endpoint untuk membaca todo/chat/ingatan pengguna lain.
@@ -274,7 +289,7 @@ Semua `/api/` wajib `X-AITodo: 1`. Cookie (browser) atau `Authorization: Bearer`
 | Chat | `GET/POST/DELETE /chat`, `POST /chat/batches/{id}/confirm\|reject\|undo` |
 | Ingatan | `GET/POST /memory`, `PUT/DELETE /memory/{id}`, `GET /memory/export` |
 | Sinkron & push | `GET /changes`, `GET /push/key`, `POST /push/subscribe\|unsubscribe\|test` |
-| Admin | `GET /admin/stats`, `GET/POST /admin/users`, `PUT/DELETE /admin/users/{id}`, `GET /admin/ai`, `PUT /admin/ai/settings`, `POST /admin/ai/models`, `PUT/DELETE /admin/ai/models/{id}`, `POST /admin/ai/models/{id}/test`, `POST /admin/ai/models/reorder`, `GET /admin/ai/providers/{p}/models`, `POST /admin/ai/models/import`, `GET /admin/ai-calls`, `GET /admin/ai-calls/summary`, `POST /admin/ai-calls/delete`, `GET /admin/system-logs` |
+| Admin | `POST /admin/login`, `POST /admin/logout`, `GET /admin/me`, `PUT /admin/me/password`, `GET/POST /admin/admins`, `PUT/DELETE /admin/admins/{id}`, `GET /admin/stats`, `GET/POST /admin/users`, `PUT/DELETE /admin/users/{id}`, `GET /admin/ai`, `PUT /admin/ai/settings`, `POST /admin/ai/models`, `PUT/DELETE /admin/ai/models/{id}`, `POST /admin/ai/models/{id}/test`, `POST /admin/ai/models/reorder`, `GET /admin/ai/providers/{p}/models`, `POST /admin/ai/models/import`, `GET /admin/ai-calls`, `GET /admin/ai-calls/summary`, `POST /admin/ai-calls/delete`, `GET /admin/system-logs` |
 
 ## 10. Tahapan
 

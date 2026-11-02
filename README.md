@@ -21,7 +21,7 @@ Rancangan lengkap: [`docs/PRD.md`](docs/PRD.md). Tahapan kerja: [`_todo/00-track
 | **Pengingat** | sekali, harian, mingguan, bulanan, tahunan, tiap N menit/jam dalam rentang jam; berakhir pada tanggal / setelah N kali; tunda, jeda |
 | **Ingatan AI** | profil & catatan yang selalu dibawa asisten; lihat/ubah/hapus, ekspor `.md` |
 | **Pengaturan** | notifikasi perangkat ini, ringkasan pagi & dorongan terlambat, profil & zona waktu, password, perangkat & token aplikasi Mac |
-| **Admin** (peran admin) | ringkasan, pengguna, **katalog Model AI** (tes, aktif/nonaktif, urutan fallback, tambah manual / dari daftar API provider), persona & batas asisten, **AI Call Log** (request keluar ke provider AI) & **System Log** (error server) |
+| **Admin** (akun admin terpisah, `/admin`) | akun admin, ringkasan, pengguna, **katalog Model AI** (tes, aktif/nonaktif, urutan fallback, tambah manual / dari daftar API provider), persona & batas asisten, **AI Call Log** (request keluar ke provider AI) & **System Log** (error server) |
 
 ## Aplikasi menu bar Mac
 
@@ -68,7 +68,9 @@ cd server && DATA_DIR=../data SECURE_COOKIES=false ADMIN_PASSWORD='password-panj
 cd web && npm install && npm run dev
 ```
 
-Tanpa `ADMIN_PASSWORD`, password admin acak dibuat dan dicetak **sekali** di log. Isi minimal satu
+Tanpa `ADMIN_PASSWORD`, password admin acak dibuat dan dicetak **sekali** di log. Akun admin
+terpisah dari akun pengguna: masuk di `/admin`, lalu buat akun pengguna untuk memakai todo
+(Admin → Pengguna). Admin lain dibuat di Admin → Akun admin atau `aitodo admin <username>`. Isi minimal satu
 `*_API_KEY` supaya asisten AI bisa menjawab; tanpa key, semua fitur manual tetap jalan.
 
 `make build` menghasilkan satu binary `build/aitodo` dengan PWA di dalamnya. `make ci` menjalankan
@@ -98,7 +100,8 @@ Auto deploy setiap merge ke `main` (CI → SSH → backup → rebuild → health
 - Ingatan menolak password, PIN, token, nomor kartu, dan pola prompt injection.
 - Sesi: token acak (server simpan hash), cookie `HttpOnly + Secure + SameSite=Strict`, header CSRF
   wajib, batas percobaan login, CSP ketat. Data tiap pengguna terisolasi; admin tidak bisa membaca
-  isi milik pengguna lain.
+  isi milik pengguna lain. Akun & sesi admin terpisah dari akun pengguna (pengguna tidak bisa
+  menjadi admin).
 
 Detail: [PRD §7](docs/PRD.md#7-keamanan).
 

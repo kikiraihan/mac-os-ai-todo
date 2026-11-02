@@ -95,7 +95,8 @@ func (s *Server) authenticate(w http.ResponseWriter, r *http.Request) (db.Sessio
 		return db.Session{}, db.User{}, false
 	}
 	sess, user, err := s.DB.SessionByTokenHash(hashToken(token))
-	if err != nil || user.Disabled {
+	// Akun pengguna selalu role "user"; selain itu ditolak (pertahanan berlapis, lihat adminauth.go).
+	if err != nil || user.Disabled || user.Role != db.RoleUser {
 		if fromCookie {
 			s.clearCookie(w)
 		}

@@ -4,7 +4,7 @@
 //   • Klik ikon = popover: tab Chat (gaya Claude: gelembung pengguna di kanan, jawaban AI penuh lebar)
 //     dan tab Manual (tambah todo, klik lingkaran = tandai selesai); ⌥⌘T buka / tutup popover
 //   • Konfirmasi / undo aksi asisten; klik kanan ikon = menu singkat (Pengaturan, Keluar)
-//   • Jendela Pengaturan terpisah (tab Umum, Akun, Tentang — pola PasteLAN)
+//   • Jendela Pengaturan terpisah (tab Umum, Akun, Ingatan, Tentang — pola PasteLAN)
 //   • Notifikasi lokal untuk pengingat & tenggat (tombol Selesai / Tunda 10 mnt)
 //   • Token perangkat di Keychain; sinkron real-time lewat long-poll
 //
@@ -14,6 +14,7 @@ import AppKit
 import Carbon.HIToolbox
 import CryptoKit
 import ServiceManagement
+import UniformTypeIdentifiers
 import UserNotifications
 
 // MARK: - Keychain (token perangkat; tidak pernah ditulis ke file pengaturan)
@@ -1140,7 +1141,7 @@ final class PopoverController: NSViewController {
     @objc private func openSettings() { app.openSettings() }
 }
 
-// MARK: - Jendela Pengaturan (tab Umum, Akun, Tentang — pola PasteLAN)
+// MARK: - Jendela Pengaturan (tab Umum, Akun, Ingatan, Tentang — pola PasteLAN)
 
 /// Kartu berlatar gaya System Settings; warnanya ikut tema terang / gelap
 final class CardView: NSView {
@@ -1266,8 +1267,270 @@ final class FormPage: NSViewController {
     }
 }
 
+/// Tab Ingatan: lihat, tambah, ubah, hapus, dan ekspor ingatan AI — sama dengan web → Ingatan.
+/// Isinya hanya milik pengguna yang terhubung; server memindai rahasia/injeksi sebelum menyimpan.
+final class MemoryPage: NSViewController {
+    static let sections: [(key: String, title: String, desc: String)] = [
+        ("profile", "Profil saya", "Siapa kamu: kebiasaan, preferensi, gaya komunikasi. Contoh: “Biasanya belanja Sabtu pagi”."),
+        ("notes", "Catatan asisten", "Konteks & kesepakatan yang perlu diingat. Contoh: “List Kantor = pekerjaan kantor”."),
+    ]
+
+    unowned let app: AppDelegate
+    private let stack = UI.stack([], spacing: 18)
+    private lazy var scroll = UI.scroll(stack)
+    private var data: MemoryList?
+    private var loadError: String?
+    private var loading = false
+    private var busy = false
+    /// Kolom "Tambah satu fakta…" per bagian; teksnya dipertahankan saat daftar digambar ulang.
+    private var drafts: [String: NSTextField] = [:]
+
+    init(app: AppDelegate) {
+        self.app = app
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) { fatalError("tidak dipakai") }
+
+    override func loadView() {
+        let v = NSView(frame: NSRect(origin: .zero, size: SettingsWindow.size))
+        for c in [v.widthAnchor.constraint(equalToConstant: SettingsWindow.size.width),
+                  v.heightAnchor.constraint(equalToConstant: SettingsWindow.size.height)] {
+            c.priority = .defaultLow
+            c.isActive = true
+        }
+        view = v
+        preferredContentSize = SettingsWindow.size
+        stack.edgeInsets = NSEdgeInsets(top: 20, left: 24, bottom: 20, right: 24)
+        UI.pin(scroll, to: v)
+        render()
+    }
+
+    override func viewWillAppear() {
+        super.viewWillAppear()
+        load()
+    }
+
+    /// Muat ulang dari server (dipanggil saat tab dibuka, setelah aksi, dan saat ada perubahan dari perangkat lain).
+    func load() {
+        guard isViewLoaded else { return }
+        guard app.store.connected else {
+            data = nil
+            loadError = nil
+            return render()
+        }
+        guard !loading else { return }
+        loading = true
+        app.store.api.memories { [weak self] r in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.loading = false
+                switch r {
+                case .success(let d):
+                    self.data = d
+                    self.loadError = nil
+                case .failure(let e):
+                    self.loadError = e.description
+                }
+                self.render()
+            }
+        }
+    }
+
+    // MARK: Tampilan
+
+    private var width: CGFloat { SettingsWindow.size.width - 48 }
+
+    private func render() {
+        guard isViewLoaded else { return }
+        let keep = drafts.mapValues { $0.stringValue }
+        drafts = [:]
+        stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+
+        let intro = Form.note("Hal yang diingat asisten tentangmu di setiap percakapan. Asisten bisa menambahkannya sendiri saat kamu " +
+                              "bercerita; di sini kamu bisa memeriksa, mengubah, atau menghapusnya. Hanya kamu yang bisa melihatnya. " +
+                              "Password, PIN, nomor kartu, dan token otomatis ditolak.", width: width)
+        add(intro)
+
+        guard app.store.connected else {
+            add(Form.section("Ingatan AI", [
+                Form.row("Belum terhubung", "Hubungkan Mac ini ke server dulu untuk melihat ingatan asisten.",
+                         Form.button("Hubungkan…", app, #selector(AppDelegate.connect))),
+            ]))
+            return
+        }
+
+        let reload = Form.button("Muat ulang", self, #selector(reloadTapped))
+        let export = Form.button("Ekspor .md…", self, #selector(exportTapped))
+        let web = Form.button("Buka di web", self, #selector(openWebTapped))
+        let tools = UI.stack([reload, export, web], vertical: false, spacing: 8)
+        export.isEnabled = data != nil
+        add(tools)
+
+        if let loadError {
+            add(Form.section("Ingatan AI", [Form.row("Gagal memuat", loadError, nil)]))
+        }
+        guard let data else {
+            if loadError == nil { add(Form.label("Memuat…")) }
+            return
+        }
+        for (i, s) in MemoryPage.sections.enumerated() {
+            add(section(i, s.key, s.title, s.desc, data, draft: keep[s.key] ?? ""))
+        }
+    }
+
+    private func add(_ v: NSView) {
+        stack.addArrangedSubview(v)
+        v.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -48).isActive = true
+    }
+
+    private func section(_ index: Int, _ key: String, _ title: String, _ desc: String, _ d: MemoryList, draft: String) -> NSView {
+        let used = d.usage[key] ?? 0
+        let limit = max(1, d.limits[key] ?? 1)
+        let bar = NSProgressIndicator()
+        bar.style = .bar
+        bar.isIndeterminate = false
+        bar.minValue = 0
+        bar.maxValue = Double(limit)
+        bar.doubleValue = Double(min(used, limit))
+        bar.translatesAutoresizingMaskIntoConstraints = false
+        bar.widthAnchor.constraint(equalToConstant: 140).isActive = true
+        let count = Form.note("\(used)/\(limit) karakter" + (used * 100 / limit >= 80 ? " — hampir penuh" : ""), width: 200)
+        var rows: [NSView] = [Form.row(UI.stack([bar, count], spacing: 3), desc, nil)]
+
+        let items = d.items(key)
+        if items.isEmpty { rows.append(Form.note("Belum ada.", width: width - 28)) }
+        for m in items {
+            let edit = iconButton("pencil", "Ubah", #selector(editTapped(_:)), m.id)
+            let del = iconButton("trash", "Hapus", #selector(deleteTapped(_:)), m.id)
+            let detail = "\(m.source == "chat" ? "dari chat" : "manual") · \(MemoryPage.ago(m.updatedAt))"
+            rows.append(Form.row(UI.text(m.content, width: width - 120), detail, UI.stack([edit, del], vertical: false, spacing: 4)))
+        }
+
+        let field = NSTextField(string: draft)
+        field.placeholderString = "Tambah satu fakta…"
+        field.tag = index
+        field.target = self
+        field.action = #selector(addTapped(_:))
+        field.translatesAutoresizingMaskIntoConstraints = false
+        field.widthAnchor.constraint(equalToConstant: width - 120).isActive = true
+        drafts[key] = field
+        let addButton = Form.button("Tambah", self, #selector(addTapped(_:)))
+        addButton.tag = index
+        rows.append(UI.stack([field, addButton], vertical: false, spacing: 8))
+        field.isEnabled = !busy
+        addButton.isEnabled = !busy
+        return Form.section(title, rows)
+    }
+
+    private func iconButton(_ symbol: String, _ tip: String, _ action: Selector, _ id: Int64) -> NSButton {
+        let b = NSButton(image: UI.symbol(symbol, 13) ?? NSImage(), target: self, action: action)
+        b.bezelStyle = .rounded
+        b.toolTip = tip
+        b.setAccessibilityLabel(tip)
+        b.tag = Int(id)
+        b.isEnabled = !busy
+        return b
+    }
+
+    /// "baru saja", "5 mnt lalu", "3 jam lalu", "2 hari lalu".
+    static func ago(_ stamp: String, now: Date = Date()) -> String {
+        guard let d = Clock.parseStamp(stamp) else { return "" }
+        let s = max(0, now.timeIntervalSince(d))
+        switch s {
+        case ..<60: return "baru saja"
+        case ..<3600: return "\(Int(s / 60)) mnt lalu"
+        case ..<86400: return "\(Int(s / 3600)) jam lalu"
+        default: return "\(Int(s / 86400)) hari lalu"
+        }
+    }
+
+    // MARK: Aksi
+
+    private func memory(_ id: Int) -> Memory? { data?.memories.first { $0.id == Int64(id) } }
+
+    /// Jalankan satu aksi ke server, lalu muat ulang daftar. Galat tampil sebagai peringatan.
+    private func run<T>(_ title: String, _ call: (@escaping (Result<T, APIError>) -> Void) -> Void, done: (() -> Void)? = nil) {
+        guard !busy else { return }
+        busy = true
+        render()
+        call { [weak self] r in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.busy = false
+                if case .failure(let e) = r { showError(title, e.description) } else { done?() }
+                self.load()
+            }
+        }
+    }
+
+    @objc private func addTapped(_ sender: NSControl) {
+        guard sender.tag >= 0, sender.tag < MemoryPage.sections.count else { return }
+        let key = MemoryPage.sections[sender.tag].key
+        guard let field = drafts[key] else { return }
+        let text = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        run("Gagal menambah ingatan", { self.app.store.api.addMemory(target: key, content: text, $0) }) { [weak self] in
+            self?.drafts[key]?.stringValue = ""
+        }
+    }
+
+    @objc private func editTapped(_ sender: NSButton) {
+        guard let m = memory(sender.tag) else { return }
+        let f = field(m.content)
+        let a = NSAlert()
+        a.messageText = "Ubah ingatan"
+        a.informativeText = "Satu fakta singkat, maksimal \(data?.maxEntry ?? 0) karakter."
+        a.accessoryView = formView([("Isi", f)], width: 360)
+        a.addButton(withTitle: "Simpan")
+        a.addButton(withTitle: "Batal")
+        a.window.initialFirstResponder = f
+        NSApp.activate(ignoringOtherApps: true)
+        guard a.runModal() == .alertFirstButtonReturn else { return }
+        let text = f.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, text != m.content else { return }
+        run("Gagal mengubah ingatan", { self.app.store.api.updateMemory(m.id, content: text, $0) })
+    }
+
+    @objc private func deleteTapped(_ sender: NSButton) {
+        guard let m = memory(sender.tag) else { return }
+        let a = NSAlert()
+        a.messageText = "Lupakan ingatan ini?"
+        a.informativeText = "“\(m.content)”"
+        a.addButton(withTitle: "Lupakan")
+        a.addButton(withTitle: "Batal")
+        a.buttons.first?.hasDestructiveAction = true
+        NSApp.activate(ignoringOtherApps: true)
+        guard a.runModal() == .alertFirstButtonReturn else { return }
+        run("Gagal menghapus ingatan", { self.app.store.api.deleteMemory(m.id, $0) })
+    }
+
+    @objc private func reloadTapped() { load() }
+    @objc private func openWebTapped() { app.openWebPage("/ingatan") }
+
+    @objc private func exportTapped() {
+        app.store.api.exportMemory { [weak self] r in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                switch r {
+                case .failure(let e): showError("Gagal mengekspor ingatan", e.description)
+                case .success(let md):
+                    let panel = NSSavePanel()
+                    panel.nameFieldStringValue = "ingatan-ai-\(Clock.ymd(Date(), self.app.store.tz)).md"
+                    panel.allowedContentTypes = [.plainText]
+                    panel.allowsOtherFileTypes = true
+                    NSApp.activate(ignoringOtherApps: true)
+                    guard panel.runModal() == .OK, let url = panel.url else { return }
+                    do { try md.write(to: url, atomically: true, encoding: .utf8) }
+                    catch { showError("Gagal menyimpan berkas", error.localizedDescription) }
+                }
+            }
+        }
+    }
+}
+
 final class SettingsWindow: NSObject {
-    enum Tab: Int { case general, account, about }
+    enum Tab: Int { case general, account, memory, about }
     static let size = NSSize(width: 600, height: 470)
 
     unowned let app: AppDelegate
@@ -1275,6 +1538,7 @@ final class SettingsWindow: NSObject {
     private let tabs = NSTabViewController()
     private let general = FormPage()
     private let account = FormPage()
+    private lazy var memory = MemoryPage(app: app)
     private let about = FormPage()
     private var signature = ""
     private var pending = false
@@ -1311,7 +1575,7 @@ final class SettingsWindow: NSObject {
     private func build() {
         tabs.tabStyle = .toolbar
         let pages: [(NSViewController, String, String)] = [(general, "Umum", "gearshape"), (account, "Akun", "person.crop.circle"),
-                                                           (about, "Tentang", "info.circle")]
+                                                           (memory, "Ingatan", "brain"), (about, "Tentang", "info.circle")]
         for (vc, title, icon) in pages {
             vc.title = title
             let item = NSTabViewItem(viewController: vc)
@@ -1362,6 +1626,8 @@ final class SettingsWindow: NSObject {
             account.set(accountSections(who: who))
             about.set(aboutSections())
         }
+        // Ingatan bisa berubah dari chat / perangkat lain: muat ulang hanya kalau tab-nya sedang terlihat.
+        if window?.isVisible == true, tabs.selectedTabViewItemIndex == Tab.memory.rawValue { memory.load() }
     }
 
     private func accountSections(who: String) -> [NSView] {
@@ -1745,6 +2011,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         contextMenu.addItem(item("Buka AI Todo di browser", #selector(openWeb)))
         contextMenu.addItem(.separator())
         contextMenu.addItem(item("Pengaturan…", #selector(openSettings), key: ","))
+        contextMenu.addItem(item("Ingatan AI…", #selector(openMemory)))
         updater.refreshMenu()
         contextMenu.addItem(updater.menuItem)
         contextMenu.addItem(.separator())
@@ -1769,6 +2036,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func openSettings() {
         closePopover()
         settings.show()
+    }
+
+    @objc func openMemory() {
+        closePopover()
+        settings.show(.memory)
     }
 
     @objc func openWeb() { openWebPage("/todo") }

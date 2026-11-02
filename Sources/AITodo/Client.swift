@@ -85,6 +85,25 @@ struct ChatPage: Codable {
     let batches: [String: BatchView]
 }
 
+/// Satu fakta yang diingat asisten. target: "profile" (Profil saya) | "notes" (Catatan asisten).
+struct Memory: Codable, Equatable {
+    let id: Int64
+    let target: String
+    let content: String
+    let source: String // manual | chat
+    let createdAt: String
+    let updatedAt: String
+}
+
+struct MemoryList: Codable {
+    let memories: [Memory]
+    let usage: [String: Int]  // karakter terpakai per target
+    let limits: [String: Int] // batas karakter per target
+    let maxEntry: Int
+
+    func items(_ target: String) -> [Memory] { memories.filter { $0.target == target } }
+}
+
 // MARK: - Error
 
 enum APIError: Error, CustomStringConvertible {
@@ -159,6 +178,19 @@ final class APIClient {
     /// Satu request JSON. completion dipanggil di antrean URLSession (bukan main).
     func send<T: Decodable>(_ method: String, _ path: String, body: [String: Any]? = nil, timeout: TimeInterval = 30,
                             auth: Bool = true, as type: T.Type, completion: @escaping (Result<T, APIError>) -> Void) {
+        raw(method, path, body: body, timeout: timeout, auth: auth) { r in
+            switch r {
+            case .failure(let e): completion(.failure(e))
+            case .success(let data):
+                do { completion(.success(try APIClient.decoder.decode(T.self, from: data))) }
+                catch { completion(.failure(.decode(String(describing: error)))) }
+            }
+        }
+    }
+
+    /// Request mentah: body balasan 2xx apa adanya (mis. ekspor Markdown).
+    func raw(_ method: String, _ path: String, body: [String: Any]? = nil, timeout: TimeInterval = 30,
+             auth: Bool = true, completion: @escaping (Result<Data, APIError>) -> Void) {
         guard let base else { return completion(.failure(.notConnected)) }
         guard let url = URL(string: base.absoluteString + "/api" + path) else {
             return completion(.failure(.network("alamat tidak valid")))
@@ -189,8 +221,7 @@ final class APIClient {
                 let msg = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String ?? ""
                 return completion(.failure(.server(http.statusCode, msg)))
             }
-            do { completion(.success(try APIClient.decoder.decode(T.self, from: data))) }
-            catch { completion(.failure(.decode(String(describing: error)))) }
+            completion(.success(data))
         }.resume()
     }
 
@@ -251,6 +282,30 @@ final class APIClient {
     /// action: confirm | reject | undo
     func batch(_ id: Int64, _ action: String, _ c: @escaping (Result<BatchResult, APIError>) -> Void) {
         send("POST", "/chat/batches/\(id)/\(action)", as: BatchResult.self, completion: c)
+    }
+
+    // MARK: Ingatan AI (sama dengan web → Ingatan; hanya milik pengguna ini)
+
+    func memories(_ c: @escaping (Result<MemoryList, APIError>) -> Void) {
+        send("GET", "/memory", as: MemoryList.self, completion: c)
+    }
+
+    struct MemoryResult: Decodable { let memory: Memory }
+    func addMemory(target: String, content: String, _ c: @escaping (Result<MemoryResult, APIError>) -> Void) {
+        send("POST", "/memory", body: ["target": target, "content": content], as: MemoryResult.self, completion: c)
+    }
+
+    func updateMemory(_ id: Int64, content: String, _ c: @escaping (Result<MemoryResult, APIError>) -> Void) {
+        send("PUT", "/memory/\(id)", body: ["content": content], as: MemoryResult.self, completion: c)
+    }
+
+    func deleteMemory(_ id: Int64, _ c: @escaping (Result<Ok, APIError>) -> Void) {
+        send("DELETE", "/memory/\(id)", as: Ok.self, completion: c)
+    }
+
+    /// Ekspor semua ingatan sebagai Markdown.
+    func exportMemory(_ c: @escaping (Result<String, APIError>) -> Void) {
+        raw("GET", "/memory/export") { r in c(r.map { String(decoding: $0, as: UTF8.self) }) }
     }
 
     func logout(_ c: @escaping (Result<Ok, APIError>) -> Void) {
