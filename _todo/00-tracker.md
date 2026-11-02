@@ -101,7 +101,16 @@ Rancangan: [`../docs/PRD.md`](../docs/PRD.md). Perbarui setiap tugas selesai.
 - [x] Web: klik di mana saja pada kolom tanggal/jam membuka picker (`pickers.js`, desktop); pengingat
       "Sekali" memakai satu datetime picker (`datetime-local`)
 - [x] AGENTS.md: aturan picker tanggal/jam & pola ⌥
-- [ ] Uji manual filter, input multi-baris, & mode ubah di Mac sungguhan
+- [x] Web HP: menu pindah ke atas (segmented control kaca), gestur geser ala iOS (`SwipeRow`: kanan =
+      selesai/jeda, kiri = ubah·tunda·hapus, geser penuh = langsung), filter todo = carousel chip, tambah cepat
+      dengan segmented tanggal, kotak centang bulat, tombol Hapus di lembar ubah todo & pengingat, toast di atas,
+      input 16px, theme-color ikut mode terang/gelap. Diperiksa dengan Playwright (iPhone 13, terang & gelap)
+- [x] Mac: tab **Todo** di Pengaturan — kelola lengkap (filter Hari ini/Akan datang/Tanpa tenggat/Semua/Selesai,
+      cari, kategori, ⌘N tambah, klik dua kali/↩ ubah lewat lembar, spasi selesai/buka lagi, ⌫ hapus, klik kanan,
+      arsipkan yang selesai); menu klik kanan "Kelola semua todo…". `Client.swift`: todos(status:), createTodo
+      lengkap, reopen, deleteTodo, archiveDone + tes klien
+- [ ] Uji manual filter, input multi-baris, mode ubah, & tab Todo di Mac sungguhan
+- [ ] Uji gestur geser di iPhone & Android sungguhan
 
 ## Berikutnya
 

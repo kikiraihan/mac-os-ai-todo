@@ -6,7 +6,8 @@
 //     ubah todo: tahan ⌥ lalu klik ✎, klik dua kali judul, atau klik kanan → Ubah…);
 //     ⌥⌘T buka / tutup popover
 //   • Konfirmasi / undo aksi asisten; klik kanan ikon = menu singkat (Pengaturan, Keluar)
-//   • Jendela Pengaturan terpisah (tab Umum, Akun, Ingatan, Tentang — pola PasteLAN)
+//   • Jendela Pengaturan terpisah (tab Umum, Todo, Akun, Ingatan, Tentang — pola PasteLAN);
+//     tab Todo = kelola todo lengkap seperti halaman Todo di web
 //   • Notifikasi lokal untuk pengingat & tenggat (tombol Selesai / Tunda 10 mnt)
 //   • Token perangkat di Keychain; sinkron real-time lewat long-poll
 //
@@ -1403,6 +1404,8 @@ final class TodoClick: NSClickGestureRecognizer {
 
 /// Menggantikan baris todo di daftar selama diubah. Tanggal & jam memakai NSDatePicker bawaan macOS
 /// (kalender muncul saat tanggal diklik; jam bisa diketik atau pakai panah).
+/// `full: true` = lembar (sheet) di tab Todo Pengaturan: ada judul lembar, catatan, dan tombol Hapus…;
+/// todo dengan id 0 = todo baru.
 ///   ┌ Judul todo______________________________ ┐
 ///   │ Kategori [Belanja        ▾]  [Normal ▾]  │
 ///   │ ☑ Tanggal [2/11/2026]  ☑ Jam [14.30 ⇅]   │
@@ -1420,15 +1423,20 @@ final class TodoEditor: NSView, NSTextFieldDelegate, NSComboBoxDelegate {
     private let error = UI.label("", size: 11, color: Theme.danger)
     private let cancelButton = NSButton(title: "Batal", target: nil, action: nil)
     private let saveButton = NSButton(title: "Simpan", target: nil, action: nil)
+    private let deleteButton = NSButton(title: "Hapus…", target: nil, action: nil)
+    private let notesField = NSTextField()
+    private let full: Bool
     private static let priorities = ["low", "normal", "high"]
 
     var onSave: (([String: String]) -> Void)?
     var onCancel: (() -> Void)?
-    var busy = false { didSet { saveButton.isEnabled = !busy; cancelButton.isEnabled = !busy } }
+    var onDelete: (() -> Void)?
+    var busy = false { didSet { [saveButton, cancelButton, deleteButton].forEach { $0.isEnabled = !busy } } }
 
-    init(todo: Todo, lists: [String], tz: TimeZone) {
+    init(todo: Todo, lists: [String], tz: TimeZone, full: Bool = false) {
         self.todo = todo
         self.tz = tz
+        self.full = full
         super.init(frame: .zero)
         build(lists)
     }
@@ -1506,11 +1514,45 @@ final class TodoEditor: NSView, NSTextFieldDelegate, NSComboBoxDelegate {
 
         let meta = UI.stack([listBox, priority], vertical: false, spacing: 8)
         let when = UI.stack([dateCheck, datePicker, NSView(), timeCheck, timePicker], vertical: false, spacing: 6)
-        let buttons = UI.stack([error, NSView(), cancelButton, saveButton], vertical: false, spacing: 8)
-        let form = UI.stack([titleField, meta, when, buttons], spacing: 8)
-        for v in [titleField, meta, when, buttons] as [NSView] { v.widthAnchor.constraint(equalTo: form.widthAnchor).isActive = true }
+        var buttonViews: [NSView] = [error, NSView(), cancelButton, saveButton]
+        var rows: [NSView] = [titleField, meta, when]
+        if full {
+            notesField.stringValue = todo.notes
+            notesField.placeholderString = "Catatan (opsional)"
+            notesField.bezelStyle = .roundedBezel
+            notesField.usesSingleLineMode = false
+            notesField.cell?.wraps = true
+            notesField.cell?.isScrollable = false
+            notesField.lineBreakMode = .byWordWrapping
+            notesField.delegate = self
+            notesField.setAccessibilityLabel("Catatan")
+            notesField.heightAnchor.constraint(equalToConstant: 64).isActive = true
+            rows.insert(notesField, at: 1)
+            let head = UI.label(todo.id == 0 ? "Todo baru" : "Ubah todo", size: 15, weight: .semibold)
+            rows.insert(head, at: 0)
+            if todo.id != 0 {
+                deleteButton.bezelStyle = .rounded
+                deleteButton.target = self
+                deleteButton.action = #selector(deleteTapped)
+                deleteButton.hasDestructiveAction = true
+                buttonViews.insert(deleteButton, at: 0)
+            }
+            [cancelButton, saveButton, deleteButton].forEach { $0.controlSize = .regular }
+            cancelButton.keyEquivalent = "\u{1b}"
+            saveButton.keyEquivalent = "\r" // lembar: ↩ = Simpan (tombol bawaan)
+        }
+        let buttons = UI.stack(buttonViews, vertical: false, spacing: 8)
+        rows.append(buttons)
+        let form = UI.stack(rows, spacing: full ? 12 : 8)
+        for v in rows { v.widthAnchor.constraint(equalTo: form.widthAnchor).isActive = true }
         listBox.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
+        if full {
+            form.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(form)
+            UI.pin(form, to: self, top: 20, left: 20, bottom: 20, right: 20)
+            return
+        }
         let card = RoundedBox(fill: .controlBackgroundColor, stroke: Theme.accent, radius: 12)
         card.addSubview(form)
         UI.pin(form, to: card, top: 10, left: 10, bottom: 10, right: 10)
@@ -1518,6 +1560,8 @@ final class TodoEditor: NSView, NSTextFieldDelegate, NSComboBoxDelegate {
         addSubview(card)
         UI.pin(card, to: self, top: 4, bottom: 4)
     }
+
+    @objc private func deleteTapped() { onDelete?() }
 
     /// Jam hanya bisa dipakai kalau ada tanggal (aturan yang sama dengan server & web).
     @objc private func checksChanged() {
@@ -1540,13 +1584,15 @@ final class TodoEditor: NSView, NSTextFieldDelegate, NSComboBoxDelegate {
         error.isHidden = true
         let hasDate = dateCheck.state == .on
         let hasTime = hasDate && timeCheck.state == .on
-        onSave?([
+        var fields = [
             "title": title,
             "list": listBox.stringValue.trimmingCharacters(in: .whitespacesAndNewlines),
             "priority": TodoEditor.priorities[max(0, priority.indexOfSelectedItem)],
             "dueDate": hasDate ? Clock.ymd(datePicker.dateValue, tz) : "",
             "dueTime": hasTime ? Clock.hm(timePicker.dateValue, tz) : "",
-        ])
+        ]
+        if full { fields["notes"] = notesField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines) }
+        onSave?(fields)
     }
 
     @objc private func cancel() { onCancel?() }
@@ -1559,6 +1605,11 @@ final class TodoEditor: NSView, NSTextFieldDelegate, NSComboBoxDelegate {
         }
         if control === listBox, selector == #selector(NSResponder.insertNewline(_:)) {
             save()
+            return true
+        }
+        // Catatan: ↩ = baris baru (bukan simpan)
+        if control === notesField, selector == #selector(NSResponder.insertNewline(_:)) {
+            textView.insertNewlineIgnoringFieldEditor(nil)
             return true
         }
         return false
@@ -1584,7 +1635,7 @@ extension PopoverController: NSTextFieldDelegate {
     }
 }
 
-// MARK: - Jendela Pengaturan (tab Umum, Akun, Ingatan, Tentang — pola PasteLAN)
+// MARK: - Jendela Pengaturan (tab Umum, Todo, Akun, Ingatan, Tentang — pola PasteLAN)
 
 /// Kartu berlatar gaya System Settings; warnanya ikut tema terang / gelap
 final class CardView: NSView {
@@ -1707,6 +1758,453 @@ final class FormPage: NSViewController {
             content.addArrangedSubview(s)
             s.widthAnchor.constraint(equalTo: content.widthAnchor).isActive = true
         }
+    }
+}
+
+/// Tab Todo: kelola semua todo seperti halaman Todo di web (filter, cari, kategori, tambah, ubah,
+/// selesai / buka lagi, hapus, arsipkan). Semua aksi lewat API yang sama → validasi di server (internal/core).
+///   [ Hari ini | Akan datang | Tanpa tenggat | Semua | Selesai ]
+///   [🔍 Cari                ] [Semua kategori ▾]        [ + ]
+///   ┌──────────────────────────────────────────────────────┐
+///   │ ○ Bayar listrik                            Kemarin    │  ← klik dua kali / ↩ = ubah, spasi = selesai,
+///   │   Belanja · Prioritas tinggi                          │    ⌫ = hapus, klik kanan = menu
+///   └──────────────────────────────────────────────────────┘
+///   7 todo                               [Arsipkan yang selesai]
+final class TodoPage: NSViewController, NSTableViewDataSource, NSTableViewDelegate, NSMenuDelegate, NSSearchFieldDelegate {
+    enum Filter: Int, CaseIterable { case today, upcoming, nodate, all, done }
+    static let filterTitles = ["Hari ini", "Akan datang", "Tanpa tenggat", "Semua", "Selesai"]
+
+    unowned let app: AppDelegate
+    private var store: Store { app.store }
+    private let filterControl = NSSegmentedControl(labels: TodoPage.filterTitles, trackingMode: .selectOne, target: nil, action: nil)
+    private let search = NSSearchField()
+    private let listPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let table = TodoTable()
+    private lazy var tableScroll = NSScrollView()
+    private let empty = UI.label("", size: 13, color: .secondaryLabelColor)
+    private let footer = UI.label("", size: 11, color: .secondaryLabelColor)
+    private lazy var archiveButton = Form.button("Arsipkan yang selesai", self, #selector(archiveTapped))
+    private var rows: [Todo] = []
+    private var doneTodos: [Todo] = []
+    private var loadingDone = false
+    private var sheetWindow: NSWindow?
+
+    init(app: AppDelegate) {
+        self.app = app
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) { fatalError("tidak dipakai") }
+
+    private var filter: Filter { Filter(rawValue: filterControl.selectedSegment) ?? .today }
+
+    override func loadView() {
+        let v = NSView(frame: NSRect(origin: .zero, size: SettingsWindow.size))
+        for c in [v.widthAnchor.constraint(equalToConstant: SettingsWindow.size.width),
+                  v.heightAnchor.constraint(equalToConstant: SettingsWindow.size.height)] {
+            c.priority = .defaultLow
+            c.isActive = true
+        }
+        view = v
+        preferredContentSize = SettingsWindow.size
+
+        filterControl.target = self
+        filterControl.action = #selector(filterChanged)
+        filterControl.selectedSegment = 0
+        filterControl.segmentDistribution = .fillEqually
+        filterControl.setAccessibilityLabel("Filter todo")
+
+        search.placeholderString = "Cari judul atau catatan"
+        search.delegate = self
+        search.sendsSearchStringImmediately = true
+        search.target = self
+        search.action = #selector(searchChanged)
+        listPopup.target = self
+        listPopup.action = #selector(searchChanged)
+        listPopup.setAccessibilityLabel("Filter kategori")
+        let add = NSButton(image: UI.symbol("plus", 13, weight: .semibold) ?? NSImage(), target: self, action: #selector(addTapped))
+        add.bezelStyle = .rounded
+        add.toolTip = "Todo baru (⌘N)"
+        add.keyEquivalent = "n"
+        add.keyEquivalentModifierMask = .command
+        add.setAccessibilityLabel("Todo baru")
+        let tools = UI.stack([search, listPopup, add], vertical: false, spacing: 8)
+        search.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+        let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("todo"))
+        col.resizingMask = .autoresizingMask
+        table.addTableColumn(col)
+        table.headerView = nil
+        table.style = .inset
+        table.usesAutomaticRowHeights = true
+        table.intercellSpacing = NSSize(width: 0, height: 2)
+        table.dataSource = self
+        table.delegate = self
+        table.target = self
+        table.doubleAction = #selector(editClicked)
+        table.allowsEmptySelection = true
+        table.setAccessibilityLabel("Daftar todo")
+        let menu = NSMenu()
+        menu.delegate = self
+        table.menu = menu
+        table.onKey = { [weak self] key in self?.handleKey(key) ?? false }
+        tableScroll.documentView = table
+        tableScroll.hasVerticalScroller = true
+        tableScroll.drawsBackground = false
+        tableScroll.borderType = .noBorder
+        tableScroll.autohidesScrollers = true
+
+        empty.alignment = .center
+        archiveButton.controlSize = .small
+        let bottom = UI.stack([footer, NSView(), archiveButton], vertical: false, spacing: 8)
+
+        for x in [filterControl, tools, tableScroll, empty, bottom] as [NSView] {
+            x.translatesAutoresizingMaskIntoConstraints = false
+            v.addSubview(x)
+        }
+        let m: CGFloat = 20
+        NSLayoutConstraint.activate([
+            filterControl.topAnchor.constraint(equalTo: v.topAnchor, constant: 16),
+            filterControl.leadingAnchor.constraint(equalTo: v.leadingAnchor, constant: m),
+            filterControl.trailingAnchor.constraint(equalTo: v.trailingAnchor, constant: -m),
+            tools.topAnchor.constraint(equalTo: filterControl.bottomAnchor, constant: 12),
+            tools.leadingAnchor.constraint(equalTo: v.leadingAnchor, constant: m),
+            tools.trailingAnchor.constraint(equalTo: v.trailingAnchor, constant: -m),
+            tableScroll.topAnchor.constraint(equalTo: tools.bottomAnchor, constant: 10),
+            tableScroll.leadingAnchor.constraint(equalTo: v.leadingAnchor, constant: m - 10),
+            tableScroll.trailingAnchor.constraint(equalTo: v.trailingAnchor, constant: -(m - 10)),
+            tableScroll.bottomAnchor.constraint(equalTo: bottom.topAnchor, constant: -8),
+            empty.centerXAnchor.constraint(equalTo: tableScroll.centerXAnchor),
+            empty.centerYAnchor.constraint(equalTo: tableScroll.centerYAnchor),
+            empty.widthAnchor.constraint(lessThanOrEqualTo: tableScroll.widthAnchor, constant: -40),
+            bottom.leadingAnchor.constraint(equalTo: v.leadingAnchor, constant: m),
+            bottom.trailingAnchor.constraint(equalTo: v.trailingAnchor, constant: -m),
+            bottom.bottomAnchor.constraint(equalTo: v.bottomAnchor, constant: -12),
+            bottom.heightAnchor.constraint(greaterThanOrEqualToConstant: 22),
+        ])
+        reload()
+    }
+
+    override func viewWillAppear() {
+        super.viewWillAppear()
+        reload()
+    }
+
+    // MARK: Data
+
+    /// Dipanggil saat tab dibuka dan setiap store berubah (sinkron dari perangkat lain).
+    func reload() {
+        guard isViewLoaded else { return }
+        if filter == .done && store.connected && !loadingDone {
+            loadingDone = true
+            store.api.todos(status: "done") { [weak self] r in
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    self.loadingDone = false
+                    if case .success(let d) = r { self.doneTodos = d.todos }
+                    self.render()
+                }
+            }
+        }
+        render()
+    }
+
+    private func render() {
+        guard isViewLoaded else { return }
+        let b = store.buckets
+        let counts = [b.badge, b.upcoming.count, b.noDate.count, b.total, doneTodos.count]
+        for (i, title) in TodoPage.filterTitles.enumerated() {
+            filterControl.setLabel(counts[i] > 0 && i != Filter.done.rawValue ? "\(title)  \(counts[i])" : title, forSegment: i)
+        }
+
+        // Kategori: dari semua todo yang dikenal; pilihan dipertahankan
+        let lists = Array(Set((store.todos + doneTodos).map(\.list).filter { !$0.isEmpty })).sorted()
+        let picked = listPopup.indexOfSelectedItem > 0 ? listPopup.titleOfSelectedItem : nil
+        listPopup.removeAllItems()
+        listPopup.addItem(withTitle: "Semua kategori")
+        listPopup.addItems(withTitles: lists)
+        if let picked, lists.contains(picked) { listPopup.selectItem(withTitle: picked) }
+        listPopup.isHidden = lists.isEmpty
+
+        let base: [Todo]
+        switch filter {
+        case .today: base = b.overdue + b.today
+        case .upcoming: base = b.upcoming
+        case .nodate: base = b.noDate
+        case .all: base = b.overdue + b.today + b.upcoming + b.noDate
+        case .done: base = doneTodos
+        }
+        let q = search.stringValue.trimmingCharacters(in: .whitespaces).lowercased()
+        let list = listPopup.indexOfSelectedItem > 0 ? listPopup.titleOfSelectedItem ?? "" : ""
+        let selected = table.selectedRow >= 0 && table.selectedRow < rows.count ? rows[table.selectedRow].id : nil
+        rows = base.filter { t in
+            (list.isEmpty || t.list == list) &&
+                (q.isEmpty || t.title.lowercased().contains(q) || t.notes.lowercased().contains(q))
+        }
+        table.reloadData()
+        if let selected, let i = rows.firstIndex(where: { $0.id == selected }) {
+            table.selectRowIndexes(IndexSet(integer: i), byExtendingSelection: false)
+        }
+
+        if !store.connected {
+            empty.stringValue = "Hubungkan Mac ini ke server dulu (tab Akun)."
+        } else if rows.isEmpty {
+            empty.stringValue = !q.isEmpty || !list.isEmpty ? "Tidak ada todo yang cocok." : [
+                "Tidak ada todo untuk hari ini 🎉", "Tidak ada todo terjadwal.", "Semua todo punya tenggat.",
+                "Semua todo sudah selesai 🎉", "Belum ada todo yang selesai.",
+            ][filter.rawValue]
+        }
+        empty.isHidden = store.connected && !rows.isEmpty
+        footer.stringValue = rows.isEmpty ? "" : "\(rows.count) todo · klik dua kali untuk mengubah"
+        archiveButton.isHidden = filter != .done || doneTodos.isEmpty
+        filterControl.isEnabled = store.connected
+    }
+
+    // MARK: Tabel
+
+    func numberOfRows(in tableView: NSTableView) -> Int { rows.count }
+
+    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        let id = NSUserInterfaceItemIdentifier("TodoCell")
+        let cell = tableView.makeView(withIdentifier: id, owner: self) as? TodoCell ?? {
+            let c = TodoCell()
+            c.identifier = id
+            c.check.target = self
+            c.check.action = #selector(checkClicked(_:))
+            return c
+        }()
+        cell.configure(rows[row], tz: store.tz)
+        return cell
+    }
+
+    private func todo(at row: Int) -> Todo? { row >= 0 && row < rows.count ? rows[row] : nil }
+
+    /// ↩ = ubah, spasi = selesai / buka lagi, ⌫ = hapus.
+    private func handleKey(_ key: TodoTable.Key) -> Bool {
+        guard let t = todo(at: table.selectedRow) else { return false }
+        switch key {
+        case .enter: edit(t)
+        case .space: toggle(t)
+        case .delete: delete(t)
+        }
+        return true
+    }
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.removeAllItems()
+        guard let t = todo(at: table.clickedRow) else { return }
+        func item(_ title: String, _ action: Selector) {
+            let i = NSMenuItem(title: title, action: action, keyEquivalent: "")
+            i.target = self
+            i.representedObject = NSNumber(value: t.id)
+            menu.addItem(i)
+        }
+        item("Ubah…", #selector(editMenu(_:)))
+        item(t.status == "done" ? "Buka lagi" : "Tandai selesai", #selector(toggleMenu(_:)))
+        menu.addItem(.separator())
+        item("Hapus…", #selector(deleteMenu(_:)))
+    }
+
+    private func find(_ sender: NSMenuItem) -> Todo? {
+        guard let id = (sender.representedObject as? NSNumber)?.int64Value else { return nil }
+        return rows.first { $0.id == id }
+    }
+
+    @objc private func editMenu(_ s: NSMenuItem) { find(s).map(edit) }
+    @objc private func toggleMenu(_ s: NSMenuItem) { find(s).map(toggle) }
+    @objc private func deleteMenu(_ s: NSMenuItem) { find(s).map(delete) }
+    @objc private func editClicked() { todo(at: table.clickedRow).map(edit) }
+    @objc private func checkClicked(_ sender: NSButton) {
+        let row = table.row(for: sender)
+        guard let t = todo(at: row) else { return }
+        sender.image = UI.symbol(t.status == "done" ? "circle" : "checkmark.circle.fill", 17)
+        toggle(t)
+    }
+    @objc private func filterChanged() { reload() }
+    @objc private func searchChanged() { render() }
+    func controlTextDidChange(_ obj: Notification) { render() }
+
+    // MARK: Aksi (semua lewat API → validasi server)
+
+    private func run<T>(_ title: String, _ call: (@escaping (Result<T, APIError>) -> Void) -> Void, done: ((T) -> Void)? = nil) {
+        call { [weak self] r in
+            DispatchQueue.main.async {
+                switch r {
+                case .success(let v): done?(v)
+                case .failure(let e): showError(title, e.description)
+                }
+                self?.store.refresh()
+                if self?.filter == .done { self?.reload() }
+            }
+        }
+    }
+
+    private func toggle(_ t: Todo) {
+        if t.status == "done" {
+            doneTodos.removeAll { $0.id == t.id }
+            run("Gagal membuka lagi todo", { store.api.reopen(todo: t.id, $0) })
+        } else {
+            run("Gagal menandai selesai", { store.api.complete(todo: t.id, $0) })
+        }
+    }
+
+    private func delete(_ t: Todo) {
+        let a = NSAlert()
+        a.messageText = "Hapus “\(t.title)”?"
+        a.informativeText = "Pengingat milik todo ini ikut terhapus. Tindakan ini tidak bisa dibatalkan."
+        a.alertStyle = .warning
+        a.addButton(withTitle: "Hapus")
+        a.addButton(withTitle: "Batal")
+        a.buttons.first?.hasDestructiveAction = true
+        let go = { [weak self] in
+            guard let self else { return }
+            self.doneTodos.removeAll { $0.id == t.id }
+            self.run("Gagal menghapus todo", { self.store.api.deleteTodo(t.id, $0) })
+        }
+        if let w = view.window, sheetWindow == nil {
+            a.beginSheetModal(for: w) { if $0 == .alertFirstButtonReturn { go() } }
+        } else if a.runModal() == .alertFirstButtonReturn { go() }
+    }
+
+    @objc private func archiveTapped() {
+        let n = doneTodos.count
+        let a = NSAlert()
+        a.messageText = "Arsipkan \(n) todo yang sudah selesai?"
+        a.informativeText = "Todo yang diarsipkan tidak tampil lagi di daftar."
+        a.addButton(withTitle: "Arsipkan")
+        a.addButton(withTitle: "Batal")
+        guard let w = view.window else { return }
+        a.beginSheetModal(for: w) { [weak self] r in
+            guard let self, r == .alertFirstButtonReturn else { return }
+            self.doneTodos = []
+            self.run("Gagal mengarsipkan", { self.store.api.archiveDone($0) })
+        }
+    }
+
+    @objc private func addTapped() {
+        guard store.connected else { return }
+        let preset = filter == .today ? Clock.ymd(Date(), store.tz) : ""
+        let blank = Todo(id: 0, title: "", notes: "", status: "open", priority: "normal",
+                         list: listPopup.indexOfSelectedItem > 0 ? listPopup.titleOfSelectedItem ?? "" : "",
+                         dueDate: preset, dueTime: "")
+        edit(blank)
+    }
+
+    /// Lembar ubah / todo baru (TodoEditor mode lengkap) di atas jendela Pengaturan.
+    private func edit(_ t: Todo) {
+        guard let window = view.window, sheetWindow == nil else { return }
+        let lists = Array(Set((store.todos + doneTodos).map(\.list).filter { !$0.isEmpty })).sorted()
+        let e = TodoEditor(todo: t, lists: lists, tz: store.tz, full: true)
+        let sheet = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 460, height: 300), styleMask: [.titled], backing: .buffered, defer: true)
+        sheet.contentView = e
+        e.widthAnchor.constraint(equalToConstant: 460).isActive = true
+        let close = { [weak self, weak sheet] in
+            guard let sheet else { return }
+            window.endSheet(sheet)
+            self?.sheetWindow = nil
+        }
+        e.onCancel = close
+        e.onSave = { [weak self, weak e] fields in
+            guard let self, let e else { return }
+            e.busy = true
+            let finish: (Result<APIClient.TodoResult, APIError>) -> Void = { r in
+                DispatchQueue.main.async {
+                    e.busy = false
+                    switch r {
+                    case .success: close()
+                    case .failure(let err): e.showError("Gagal menyimpan: \(err.description)")
+                    }
+                    self.store.refresh()
+                    if self.filter == .done { self.reload() }
+                }
+            }
+            if t.id == 0 { self.store.api.createTodo(fields, finish) } else { self.store.api.updateTodo(t.id, fields, finish) }
+        }
+        e.onDelete = { [weak self] in
+            close()
+            DispatchQueue.main.async { self?.delete(t) }
+        }
+        sheetWindow = sheet
+        e.layoutSubtreeIfNeeded()
+        sheet.setContentSize(NSSize(width: 460, height: max(200, e.fittingSize.height)))
+        window.beginSheet(sheet)
+        sheet.makeFirstResponder(e.titleField)
+    }
+}
+
+/// Satu baris di tab Todo: lingkaran selesai, judul, keterangan, dan tenggat di kanan.
+final class TodoCell: NSTableCellView {
+    let check = NSButton(image: NSImage(), target: nil, action: nil)
+    private let title = NSTextField(wrappingLabelWithString: "")
+    private let meta = UI.label("", size: 11, color: .secondaryLabelColor)
+    private let due = UI.label("", size: 12)
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        check.isBordered = false
+        title.font = .systemFont(ofSize: 13)
+        title.maximumNumberOfLines = 2
+        title.lineBreakMode = .byTruncatingTail
+        title.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        due.alignment = .right
+        due.setContentHuggingPriority(.required, for: .horizontal)
+        due.setContentCompressionResistancePriority(.required, for: .horizontal)
+        let texts = UI.stack([title, meta], spacing: 2)
+        let row = UI.stack([check, texts, due], vertical: false, spacing: 8)
+        row.alignment = .top
+        row.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(row)
+        UI.pin(row, to: self, top: 6, left: 4, bottom: 6, right: 8)
+    }
+
+    required init?(coder: NSCoder) { fatalError("tidak dipakai") }
+
+    func configure(_ t: Todo, tz: TimeZone) {
+        let done = t.status == "done"
+        check.image = UI.symbol(done ? "checkmark.circle.fill" : "circle", 17)
+        check.contentTintColor = done ? Theme.accent : t.priority == "high" ? Theme.danger : .tertiaryLabelColor
+        check.isEnabled = true
+        check.toolTip = done ? "Buka lagi" : "Tandai selesai"
+        check.setAccessibilityLabel(done ? "Buka lagi “\(t.title)”" : "Tandai “\(t.title)” selesai")
+        let attrs: [NSAttributedString.Key: Any] = done
+            ? [.strikethroughStyle: NSUnderlineStyle.single.rawValue, .foregroundColor: NSColor.secondaryLabelColor]
+            : [.foregroundColor: NSColor.labelColor]
+        title.attributedStringValue = NSAttributedString(string: (t.priority == "high" ? "! " : "") + t.title,
+                                                         attributes: attrs.merging([.font: NSFont.systemFont(ofSize: 13)]) { a, _ in a })
+        var m: [String] = []
+        if !t.list.isEmpty { m.append(t.list) }
+        if t.priority == "high" { m.append("Prioritas tinggi") } else if t.priority == "low" { m.append("Prioritas rendah") }
+        if !t.notes.isEmpty { m.append(t.notes.replacingOccurrences(of: "\n", with: " ")) }
+        meta.stringValue = m.joined(separator: " · ")
+        meta.lineBreakMode = .byTruncatingTail
+        meta.isHidden = m.isEmpty
+        if t.dueDate.isEmpty {
+            due.stringValue = ""
+        } else {
+            let today = Clock.ymd(Date(), tz)
+            let name = Clock.friendly(t.dueDate, now: Date(), tz)
+            due.stringValue = (name.prefix(1).uppercased() + name.dropFirst()) + (t.dueTime.isEmpty ? "" : " \(t.dueTime)")
+            due.textColor = !done && t.dueDate < today ? Theme.danger : done ? .secondaryLabelColor : Theme.accent
+            if !done && t.dueDate < today { due.stringValue = "Terlambat · " + due.stringValue }
+        }
+    }
+}
+
+/// NSTableView dengan pintasan papan ketik untuk tab Todo.
+final class TodoTable: NSTableView {
+    enum Key { case enter, space, delete }
+    var onKey: ((Key) -> Bool)?
+
+    override func keyDown(with event: NSEvent) {
+        let key: Key?
+        switch event.keyCode {
+        case 36, 76: key = .enter // Return, Enter
+        case 49: key = .space
+        case 51, 117: key = .delete // ⌫, ⌦
+        default: key = nil
+        }
+        if let key, onKey?(key) == true { return }
+        super.keyDown(with: event)
     }
 }
 
@@ -1973,7 +2471,7 @@ final class MemoryPage: NSViewController {
 }
 
 final class SettingsWindow: NSObject {
-    enum Tab: Int { case general, account, memory, about }
+    enum Tab: Int { case general, todos, account, memory, about }
     static let size = NSSize(width: 600, height: 470)
 
     unowned let app: AppDelegate
@@ -1981,6 +2479,7 @@ final class SettingsWindow: NSObject {
     private let tabs = NSTabViewController()
     private let general = FormPage()
     private let account = FormPage()
+    private lazy var todos = TodoPage(app: app)
     private lazy var memory = MemoryPage(app: app)
     private let about = FormPage()
     private var signature = ""
@@ -2017,7 +2516,8 @@ final class SettingsWindow: NSObject {
 
     private func build() {
         tabs.tabStyle = .toolbar
-        let pages: [(NSViewController, String, String)] = [(general, "Umum", "gearshape"), (account, "Akun", "person.crop.circle"),
+        let pages: [(NSViewController, String, String)] = [(general, "Umum", "gearshape"), (todos, "Todo", "checklist"),
+                                                           (account, "Akun", "person.crop.circle"),
                                                            (memory, "Ingatan", "brain"), (about, "Tentang", "info.circle")]
         for (vc, title, icon) in pages {
             vc.title = title
@@ -2071,6 +2571,8 @@ final class SettingsWindow: NSObject {
         }
         // Ingatan bisa berubah dari chat / perangkat lain: muat ulang hanya kalau tab-nya sedang terlihat.
         if window?.isVisible == true, tabs.selectedTabViewItemIndex == Tab.memory.rawValue { memory.load() }
+        // Todo: data dari store (sudah tersinkron), cukup gambar ulang kalau tab-nya terlihat.
+        if window?.isVisible == true, tabs.selectedTabViewItemIndex == Tab.todos.rawValue { todos.reload() }
     }
 
     private func accountSections(who: String) -> [NSView] {
@@ -2451,6 +2953,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ask.keyEquivalentModifierMask = [.command, .option]
         contextMenu.addItem(ask)
         contextMenu.addItem(item("Tambah todo manual", #selector(openManual)))
+        contextMenu.addItem(item("Kelola semua todo…", #selector(openTodos)))
         let clear = item("Hapus riwayat chat…", #selector(clearChatHistory))
         clear.isEnabled = store.connected
         contextMenu.addItem(clear)
@@ -2493,6 +2996,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func openMemory() {
         closePopover()
         settings.show(.memory)
+    }
+
+    @objc func openTodos() {
+        closePopover()
+        settings.show(.todos)
     }
 
     @objc func openWeb() { openWebPage("/todo") }

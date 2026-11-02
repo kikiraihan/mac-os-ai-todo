@@ -124,6 +124,26 @@ if case .success(let done) = wait({ api.complete(todo: t1.todo.id, $0) }) {
     check(done.todo.status == "done", "tandai selesai")
 } else { check(false, "tandai selesai") }
 
+// kelola todo lengkap (tab Todo di Pengaturan Mac)
+if case .success(let d) = wait({ api.todos(status: "done", $0) }) {
+    check(d.todos.contains { $0.id == t1.todo.id }, "daftar todo selesai")
+} else { check(false, "daftar todo selesai") }
+if case .success(let ro) = wait({ api.reopen(todo: t1.todo.id, $0) }) {
+    check(ro.todo.status == "open", "buka lagi todo selesai")
+} else { check(false, "buka lagi todo selesai") }
+if case .success(let full) = wait({ api.createTodo(["title": "Tes lengkap Mac", "notes": "catatan", "list": "Kantor",
+                                                     "priority": "low", "dueDate": tomorrow, "dueTime": "07:15"], $0) }) {
+    let t = full.todo
+    check(t.notes == "catatan" && t.list == "Kantor" && t.priority == "low" && t.dueTime == "07:15", "buat todo dengan kolom lengkap")
+    if case .success = wait({ api.deleteTodo(t.id, $0) }), case .success(let open) = wait(api.openTodos) {
+        check(!open.todos.contains { $0.id == t.id }, "hapus todo")
+    } else { check(false, "hapus todo") }
+} else { check(false, "buat todo dengan kolom lengkap") }
+_ = wait { api.complete(todo: t1.todo.id, $0) }
+if case .success(let a) = wait(api.archiveDone), case .success(let d2) = wait({ api.todos(status: "done", $0) }) {
+    check(a.archived >= 1 && d2.todos.isEmpty, "arsipkan semua yang selesai (\(a.archived))")
+} else { check(false, "arsipkan yang selesai") }
+
 // ingatan AI (tab Ingatan di Pengaturan Mac)
 guard case .success(let m0) = wait(api.memories) else { print("ingatan gagal"); exit(1) }
 check(m0.limits["profile"] ?? 0 > 0 && m0.maxEntry > 0, "GET /memory: batas & pemakaian")
