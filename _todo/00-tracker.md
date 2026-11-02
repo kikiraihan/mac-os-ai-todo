@@ -116,6 +116,12 @@ Rancangan: [`../docs/PRD.md`](../docs/PRD.md). Perbarui setiap tugas selesai.
 - [ ] Uji manual tab Todo di Mac sungguhan
 - [ ] Uji gestur geser di iPhone & Android sungguhan
 
+## v0.7.1 — bar undo Mac bisa ditutup
+
+- [x] Mac: tombol ✕ di bar "Aksi terakhir sudah dijalankan" — menutup bar tanpa membatalkan aksi (masih bisa
+      `/undo`); id kartu yang ditutup diingat (`LocalPrefs.dismissedUndoBatch`) supaya tidak muncul lagi
+- [ ] Uji manual di Mac sungguhan
+
 ## Berikutnya
 
 - [x] Deploy otomatis ke VPS (backup, health check, rollback) — `CICD.md`, diuji dengan docker tiruan

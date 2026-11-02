@@ -79,6 +79,12 @@ enum LocalPrefs {
         get { flag("showAllTodos", default: false) }
         set { d.set(newValue, forKey: "showAllTodos") }
     }
+
+    /// Id kartu aksi yang bar undo-nya sudah ditutup (✕), supaya tidak muncul lagi saat riwayat dimuat ulang.
+    static var dismissedUndoBatch: Int64 {
+        get { Int64(d.integer(forKey: "dismissedUndoBatch")) }
+        set { d.set(Int(newValue), forKey: "dismissedUndoBatch") }
+    }
 }
 
 // MARK: - Store: keadaan + sinkron
@@ -622,6 +628,15 @@ final class PopoverController: NSViewController {
     private lazy var confirmButton = button("Ya, lakukan", #selector(confirm))
     private lazy var rejectButton = button("Batal", #selector(reject))
     private lazy var undoButton = button("Batalkan aksi terakhir", #selector(undo))
+    /// Tutup bar undo tanpa membatalkan aksi (masih bisa lewat /undo).
+    private lazy var dismissUndoButton: NSButton = {
+        let b = NSButton(image: UI.symbol("xmark.circle.fill", 14) ?? NSImage(), target: self, action: #selector(dismissUndo))
+        b.isBordered = false
+        b.toolTip = "Tutup (aksi tetap bisa dibatalkan lewat /undo)"
+        b.setAccessibilityLabel("Tutup")
+        b.contentTintColor = .tertiaryLabelColor
+        return b
+    }()
     private var thinkingRow: NSView?
     private var pending: BatchView?
     private var undoable: BatchView?
@@ -729,7 +744,7 @@ final class PopoverController: NSViewController {
         // Bar konfirmasi / undo di atas input (kaca juga)
         actionLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         confirmButton.keyEquivalent = "\r"
-        let bar = UI.stack([actionIcon, actionLabel, NSView(), rejectButton, confirmButton, undoButton], vertical: false, spacing: 6)
+        let bar = UI.stack([actionIcon, actionLabel, NSView(), rejectButton, confirmButton, undoButton, dismissUndoButton], vertical: false, spacing: 6)
         UI.pin(bar, to: actionBar.content, top: 7, left: 12, bottom: 7, right: 8)
 
         // Kotak input kaca berbentuk kapsul (gaya kolom Search Apple): ikon, teks, tombol kirim bulat
@@ -887,6 +902,7 @@ final class PopoverController: NSViewController {
         confirmButton.isHidden = !hasPending
         rejectButton.isHidden = !hasPending
         undoButton.isHidden = hasPending || undoable == nil
+        dismissUndoButton.isHidden = undoButton.isHidden
         actionBar.isHidden = !hasPending && undoable == nil
         actionIcon.image = UI.symbol(hasPending ? "exclamationmark.circle.fill" : "arrow.uturn.backward.circle", 14)
         actionIcon.contentTintColor = hasPending ? .systemOrange : Theme.accent
@@ -904,7 +920,7 @@ final class PopoverController: NSViewController {
         case "pending": pending = b
         case "applied":
             if pending?.id == b.id { pending = nil }
-            undoable = b.undoable ? b : nil
+            undoable = b.undoable && b.id != LocalPrefs.dismissedUndoBatch ? b : nil
         default:
             if pending?.id == b.id { pending = nil }
             if undoable?.id == b.id { undoable = nil }
@@ -988,6 +1004,12 @@ final class PopoverController: NSViewController {
     @objc private func confirm() { batchAction(pending, "confirm", done: "Sudah kujalankan.") }
     @objc private func reject() { batchAction(pending, "reject", done: "Oke, dibatalkan.") }
     @objc private func undo() { batchAction(undoable, "undo", done: "Aksi terakhir sudah dibatalkan.") }
+    @objc private func dismissUndo() {
+        guard let b = undoable else { return }
+        LocalPrefs.dismissedUndoBatch = b.id
+        undoable = nil
+        updateControls()
+    }
 
     // MARK: Tata letak manual
 
