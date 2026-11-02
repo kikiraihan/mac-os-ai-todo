@@ -92,7 +92,9 @@ Rancangan: [`../docs/PRD.md`](../docs/PRD.md). Perbarui setiap tugas selesai.
 - [x] Pilihan filter diingat (`LocalPrefs.showAllTodos`); saat hari ini kosong ada tautan "Lihat N todo lainnya"
 - [x] `TodoBuckets.upcomingByDay` & `total` di `Client.swift` + tes klien
 - [x] AGENTS.md: prinsip desain gaya Apple (simpel, intuitif, rapi)
-- [ ] Uji manual filter di Mac sungguhan
+- [x] Input chat Mac: ↩ kirim, ⇧↩ (atau ⌥↩) baris baru; kapsul input tumbuh sampai 6 baris lalu menggulir,
+      ikon & tombol kirim menempel di baris terakhir
+- [ ] Uji manual filter & input multi-baris di Mac sungguhan
 
 ## Berikutnya
 

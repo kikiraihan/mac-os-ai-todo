@@ -603,6 +603,10 @@ final class PopoverController: NSViewController {
     private let chatStack = UI.stack([], spacing: 14)
     private lazy var chatScroll = UI.scroll(chatStack)
     private let input = NSTextField()
+    /// Tinggi kolom input & kapsulnya; tumbuh mengikuti isi (⇧↩ = baris baru) sampai `inputMaxLines`.
+    private lazy var inputHeight = input.heightAnchor.constraint(equalToConstant: 18)
+    private lazy var inputGlassHeight = inputGlass.heightAnchor.constraint(equalToConstant: 44)
+    private static let inputMaxLines: CGFloat = 6
     private let sendBox = RoundedBox(fill: Theme.accent, radius: 15)
     private let inputGlass = GlassBox(radius: 22)
     private let actionBar = GlassBox(radius: 14)
@@ -697,6 +701,7 @@ final class PopoverController: NSViewController {
     /// Ruang kosong di bawah chat setinggi input yang melayang, supaya pesan terakhir tidak tertutup.
     override func viewDidLayout() {
         super.viewDidLayout()
+        resizeInput() // lebar input baru diketahui setelah tata letak
         let h = chatBottom.frame.height + PopoverController.inset + 8
         if chatScroll.contentInsets.bottom != h {
             chatScroll.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: h, right: 0)
@@ -722,7 +727,13 @@ final class PopoverController: NSViewController {
         input.focusRingType = .none
         input.font = .systemFont(ofSize: 14)
         input.placeholderString = "Tulis tugas atau tanya asisten…"
-        input.cell?.isScrollable = true
+        // Multi-baris: ↩ kirim, ⇧↩ (atau ⌥↩) baris baru — lihat control(_:textView:doCommandBy:)
+        input.usesSingleLineMode = false
+        input.cell?.isScrollable = false
+        input.cell?.wraps = true
+        input.lineBreakMode = .byWordWrapping
+        input.maximumNumberOfLines = 0
+        input.delegate = self
         input.target = self
         input.action = #selector(send)
         input.setAccessibilityLabel("Pesan untuk asisten")
@@ -731,7 +742,7 @@ final class PopoverController: NSViewController {
         let send = NSButton(image: UI.symbol("arrow.up", 13, weight: .bold) ?? NSImage(), target: self, action: #selector(send))
         send.isBordered = false
         send.contentTintColor = Theme.accentText
-        send.toolTip = "Kirim (↩)"
+        send.toolTip = "Kirim (↩) · baris baru (⇧↩)"
         send.setAccessibilityLabel("Kirim")
         UI.pin(send, to: sendBox)
         let box = inputGlass.content
@@ -740,14 +751,16 @@ final class PopoverController: NSViewController {
             box.addSubview(v)
         }
         NSLayoutConstraint.activate([
-            inputGlass.heightAnchor.constraint(equalToConstant: 44),
+            inputGlassHeight,
+            inputHeight,
+            // Ikon & tombol kirim menempel di baris terakhir saat input tumbuh (seperti Pesan/Messages)
             spark.leadingAnchor.constraint(equalTo: box.leadingAnchor, constant: 14),
-            spark.centerYAnchor.constraint(equalTo: box.centerYAnchor),
+            spark.centerYAnchor.constraint(equalTo: sendBox.centerYAnchor),
             input.leadingAnchor.constraint(equalTo: spark.trailingAnchor, constant: 8),
             input.centerYAnchor.constraint(equalTo: box.centerYAnchor),
             input.trailingAnchor.constraint(equalTo: sendBox.leadingAnchor, constant: -8),
             sendBox.trailingAnchor.constraint(equalTo: box.trailingAnchor, constant: -7),
-            sendBox.centerYAnchor.constraint(equalTo: box.centerYAnchor),
+            sendBox.bottomAnchor.constraint(equalTo: box.bottomAnchor, constant: -7),
             sendBox.widthAnchor.constraint(equalToConstant: 30),
             sendBox.heightAnchor.constraint(equalToConstant: 30),
         ])
@@ -765,7 +778,26 @@ final class PopoverController: NSViewController {
             chatBottom.trailingAnchor.constraint(equalTo: chatBox.trailingAnchor, constant: -i),
             chatBottom.bottomAnchor.constraint(equalTo: chatBox.bottomAnchor, constant: -i),
         ])
+        resizeInput()
         updateControls()
+    }
+
+    /// Sesuaikan tinggi input dengan isinya (1 … inputMaxLines baris); lebih dari itu input menggulir.
+    private func resizeInput() {
+        guard let cell = input.cell, let font = input.font else { return }
+        let line = ceil(font.ascender - font.descender + font.leading)
+        let width = max(input.bounds.width, 100)
+        var text = input.stringValue
+        if let editor = input.currentEditor() { text = editor.string }
+        // Baris kosong di akhir (baru tekan ⇧↩) tetap dihitung
+        if text.isEmpty || text.hasSuffix("\n") { text += " " }
+        let measure = cell.copy() as! NSCell
+        measure.stringValue = text
+        let h = measure.cellSize(forBounds: NSRect(x: 0, y: 0, width: width, height: .greatestFiniteMagnitude)).height
+        let height = min(max(ceil(h), line), line * PopoverController.inputMaxLines)
+        guard inputHeight.constant != height else { return }
+        inputHeight.constant = height
+        inputGlassHeight.constant = max(44, height + 26)
     }
 
     /// Pesan pengguna: gelembung teal lembut, rata kanan, maks ±75% lebar.
@@ -896,6 +928,7 @@ final class PopoverController: NSViewController {
         let text = input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !busy, store.connected else { return }
         input.stringValue = ""
+        resizeInput()
         addUser(text)
         busy = true
         setThinking(true)
@@ -912,6 +945,7 @@ final class PopoverController: NSViewController {
                 case .failure(let e):
                     self.addAssistant("Gagal mengirim: \(e.description)", error: true)
                     self.input.stringValue = text
+                    self.resizeInput()
                 }
                 self.view.window?.makeFirstResponder(self.input)
             }
@@ -1249,6 +1283,23 @@ final class PopoverController: NSViewController {
 
     @objc private func openWeb() { app.openWebPage(mode == .chat ? "/" : "/todo") }
     @objc private func openSettings() { app.openSettings() }
+}
+
+// MARK: Input chat: ↩ kirim, ⇧↩ baris baru
+
+extension PopoverController: NSTextFieldDelegate {
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        guard control === input, selector == #selector(NSResponder.insertNewline(_:)),
+              NSApp.currentEvent?.modifierFlags.contains(.shift) == true else { return false }
+        textView.insertNewlineIgnoringFieldEditor(nil)
+        resizeInput()
+        return true
+    }
+
+    func controlTextDidChange(_ obj: Notification) {
+        guard (obj.object as? NSTextField) === input else { return }
+        resizeInput()
+    }
 }
 
 // MARK: - Jendela Pengaturan (tab Umum, Akun, Ingatan, Tentang — pola PasteLAN)
