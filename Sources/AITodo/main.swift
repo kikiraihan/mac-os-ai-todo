@@ -360,6 +360,8 @@ enum Theme {
     static let bubble = dynamic(hex(0xE6F4F2), hex(0x11302D))
     static let warnSoft = dynamic(hex(0xFEF3C7), hex(0x3A2A0A))
     static let danger = dynamic(hex(0xB42318), hex(0xF97066))
+    /// Tepi kaca: putih tipis di mode gelap, abu tipis di mode terang.
+    static let glassEdge = dynamic(NSColor.black.withAlphaComponent(0.08), NSColor.white.withAlphaComponent(0.14))
 }
 
 /// Kotak bersudut membulat; warna diperbarui saat tema berubah.
@@ -393,6 +395,61 @@ final class RoundedBox: NSView {
 /// Dokumen scroll yang mengalir dari atas ke bawah.
 final class FlippedView: NSView {
     override var isFlipped: Bool { true }
+}
+
+/// Kaca gaya Apple (seperti kolom Search di System Settings): teks chat yang lewat di belakangnya jadi buram.
+/// macOS 26+ memakai Liquid Glass (NSGlassEffectView); versi lama memakai NSVisualEffectView "within window".
+/// Isi diletakkan di `content`.
+final class GlassBox: NSView {
+    let content = NSView()
+
+    init(radius: CGFloat) {
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        content.translatesAutoresizingMaskIntoConstraints = false
+        #if compiler(>=6.2)
+        if #available(macOS 26.0, *) {
+            let g = NSGlassEffectView()
+            g.cornerRadius = radius
+            g.contentView = content
+            UI.pin(g, to: self)
+            UI.pin(content, to: g)
+            return
+        }
+        #endif
+        let fx = NSVisualEffectView()
+        fx.material = .popover
+        fx.blendingMode = .withinWindow // yang diburamkan = isi jendela di belakangnya (pesan chat)
+        fx.state = .active
+        fx.maskImage = GlassBox.mask(radius)
+        UI.pin(fx, to: self)
+        // garis tepi tipis supaya tepi kaca terbaca di atas teks; di bawah isi agar tidak menghalangi klik
+        UI.pin(RoundedBox(fill: nil, stroke: Theme.glassEdge, radius: radius), to: fx)
+        UI.pin(content, to: fx)
+        wantsLayer = true
+        shadow = {
+            let sh = NSShadow()
+            sh.shadowColor = NSColor.black.withAlphaComponent(0.18)
+            sh.shadowBlurRadius = 10
+            sh.shadowOffset = NSSize(width: 0, height: -2)
+            return sh
+        }()
+    }
+
+    required init?(coder: NSCoder) { fatalError("tidak dipakai") }
+
+    /// Topeng bersudut membulat yang bisa direntangkan (capInsets) untuk NSVisualEffectView.
+    static func mask(_ r: CGFloat) -> NSImage {
+        let edge = 2 * r + 1
+        let img = NSImage(size: NSSize(width: edge, height: edge), flipped: false) { rect in
+            NSColor.black.setFill()
+            NSBezierPath(roundedRect: rect, xRadius: r, yRadius: r).fill()
+            return true
+        }
+        img.capInsets = NSEdgeInsets(top: r, left: r, bottom: r, right: r)
+        img.resizingMode = .stretch
+        return img
+    }
 }
 
 enum UI {
@@ -443,7 +500,10 @@ enum UI {
         return v
     }
 
+    /// Tempel v ke keempat sisi p. v dimasukkan ke p dulu bila belum: constraint antar-view tanpa induk bersama
+    /// melempar exception yang ditelan AppKit (dulu membuat popover diam-diam gagal tampil).
     static func pin(_ v: NSView, to p: NSView, top: CGFloat = 0, left: CGFloat = 0, bottom: CGFloat = 0, right: CGFloat = 0) {
+        if v.superview !== p { p.addSubview(v) }
         v.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             v.topAnchor.constraint(equalTo: p.topAnchor, constant: top),
@@ -476,7 +536,8 @@ enum UI {
     static func scrollToBottom(_ s: NSScrollView) {
         guard let doc = s.documentView else { return }
         doc.layoutSubtreeIfNeeded()
-        let y = max(0, doc.frame.height - s.contentView.bounds.height)
+        // contentInsets.bottom = ruang di bawah kotak input kaca yang melayang di atas chat
+        let y = max(-s.contentInsets.top, doc.frame.height + s.contentInsets.bottom - s.contentView.bounds.height)
         s.contentView.scroll(to: NSPoint(x: 0, y: y))
         s.reflectScrolledClipView(s.contentView)
     }
@@ -496,7 +557,7 @@ enum UI {
 ///   │                       └─────────────┘ │
 ///   │ Jawaban asisten penuh lebar, tanpa    │  ← jawaban AI: teks polos
 ///   │ gelembung.                            │
-///   └ ( Tulis pesan…                    ↑ ) ┘  ← kotak input
+///   └ ( ✦ Tulis pesan…                  ↑ ) ┘  ← kotak input kaca (isi chat di belakangnya buram)
 final class PopoverController: NSViewController {
     enum Mode: Int { case chat, manual }
     static let size = NSSize(width: 400, height: 600)
@@ -526,9 +587,13 @@ final class PopoverController: NSViewController {
     private let chatStack = UI.stack([], spacing: 14)
     private lazy var chatScroll = UI.scroll(chatStack)
     private let input = NSTextField()
-    private let sendBox = RoundedBox(fill: Theme.accent, radius: 14)
-    private let actionBar = RoundedBox(fill: Theme.warnSoft, radius: 10)
+    private let sendBox = RoundedBox(fill: Theme.accent, radius: 15)
+    private let inputGlass = GlassBox(radius: 22)
+    private let actionBar = GlassBox(radius: 14)
+    private let actionIcon = NSImageView()
     private let actionLabel = UI.label("", size: 12)
+    /// Input + bar aksi yang melayang di atas chat (tingginya dipakai untuk ruang bawah scroll).
+    private let chatBottom = UI.stack([], spacing: 8)
     private lazy var confirmButton = button("Ya, lakukan", #selector(confirm))
     private lazy var rejectButton = button("Batal", #selector(reject))
     private lazy var undoButton = button("Batalkan aksi terakhir", #selector(undo))
@@ -608,65 +673,76 @@ final class PopoverController: NSViewController {
         storeChanged()
     }
 
+    /// Ruang kosong di bawah chat setinggi input yang melayang, supaya pesan terakhir tidak tertutup.
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        let h = chatBottom.frame.height + PopoverController.inset + 8
+        if chatScroll.contentInsets.bottom != h {
+            chatScroll.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: h, right: 0)
+            UI.scrollToBottom(chatScroll)
+        }
+    }
+
     // MARK: Tata letak chat
 
     private func buildChat() {
         let i = PopoverController.inset
         chatStack.edgeInsets = NSEdgeInsets(top: 14, left: i, bottom: 14, right: i)
 
-        // Bar konfirmasi / undo di atas input
+        // Bar konfirmasi / undo di atas input (kaca juga)
         actionLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         confirmButton.keyEquivalent = "\r"
-        let bar = UI.stack([actionLabel, NSView(), rejectButton, confirmButton, undoButton], vertical: false, spacing: 6)
-        actionBar.addSubview(bar)
-        UI.pin(bar, to: actionBar, top: 6, left: 10, bottom: 6, right: 6)
+        let bar = UI.stack([actionIcon, actionLabel, NSView(), rejectButton, confirmButton, undoButton], vertical: false, spacing: 6)
+        UI.pin(bar, to: actionBar.content, top: 7, left: 12, bottom: 7, right: 8)
 
-        // Kotak input (gaya Claude): teks di kiri, tombol kirim bulat di kanan
+        // Kotak input kaca berbentuk kapsul (gaya kolom Search Apple): ikon, teks, tombol kirim bulat
         input.isBordered = false
         input.drawsBackground = false
         input.focusRingType = .none
-        input.font = .systemFont(ofSize: 13)
+        input.font = .systemFont(ofSize: 14)
         input.placeholderString = "Tulis tugas atau tanya asisten…"
         input.cell?.isScrollable = true
         input.target = self
         input.action = #selector(send)
         input.setAccessibilityLabel("Pesan untuk asisten")
+        let spark = NSImageView(image: UI.symbol("sparkles", 15) ?? NSImage())
+        spark.contentTintColor = .secondaryLabelColor
         let send = NSButton(image: UI.symbol("arrow.up", 13, weight: .bold) ?? NSImage(), target: self, action: #selector(send))
         send.isBordered = false
         send.contentTintColor = Theme.accentText
         send.toolTip = "Kirim (↩)"
         send.setAccessibilityLabel("Kirim")
-        sendBox.addSubview(send)
         UI.pin(send, to: sendBox)
-        let inputBox = RoundedBox(fill: .controlBackgroundColor, stroke: .separatorColor, radius: 14)
-        for v in [input, sendBox] as [NSView] {
+        let box = inputGlass.content
+        for v in [spark, input, sendBox] as [NSView] {
             v.translatesAutoresizingMaskIntoConstraints = false
-            inputBox.addSubview(v)
+            box.addSubview(v)
         }
         NSLayoutConstraint.activate([
-            inputBox.heightAnchor.constraint(equalToConstant: 46),
-            input.leadingAnchor.constraint(equalTo: inputBox.leadingAnchor, constant: 14),
-            input.centerYAnchor.constraint(equalTo: inputBox.centerYAnchor),
+            inputGlass.heightAnchor.constraint(equalToConstant: 44),
+            spark.leadingAnchor.constraint(equalTo: box.leadingAnchor, constant: 14),
+            spark.centerYAnchor.constraint(equalTo: box.centerYAnchor),
+            input.leadingAnchor.constraint(equalTo: spark.trailingAnchor, constant: 8),
+            input.centerYAnchor.constraint(equalTo: box.centerYAnchor),
             input.trailingAnchor.constraint(equalTo: sendBox.leadingAnchor, constant: -8),
-            sendBox.trailingAnchor.constraint(equalTo: inputBox.trailingAnchor, constant: -9),
-            sendBox.centerYAnchor.constraint(equalTo: inputBox.centerYAnchor),
-            sendBox.widthAnchor.constraint(equalToConstant: 28),
-            sendBox.heightAnchor.constraint(equalToConstant: 28),
+            sendBox.trailingAnchor.constraint(equalTo: box.trailingAnchor, constant: -7),
+            sendBox.centerYAnchor.constraint(equalTo: box.centerYAnchor),
+            sendBox.widthAnchor.constraint(equalToConstant: 30),
+            sendBox.heightAnchor.constraint(equalToConstant: 30),
         ])
 
-        let bottom = UI.stack([actionBar, inputBox], spacing: 8)
-        bottom.translatesAutoresizingMaskIntoConstraints = false
-        for v in [actionBar, inputBox] { v.widthAnchor.constraint(equalTo: bottom.widthAnchor).isActive = true }
-        chatBox.addSubview(chatScroll)
-        chatBox.addSubview(bottom)
+        // Chat memenuhi seluruh area; input & bar aksi melayang di atasnya → teks yang lewat di belakang jadi buram.
+        chatScroll.automaticallyAdjustsContentInsets = false
+        chatBottom.addArrangedSubview(actionBar)
+        chatBottom.addArrangedSubview(inputGlass)
+        for v in [actionBar, inputGlass] { v.widthAnchor.constraint(equalTo: chatBottom.widthAnchor).isActive = true }
+        UI.pin(chatScroll, to: chatBox)
+        chatBottom.translatesAutoresizingMaskIntoConstraints = false
+        chatBox.addSubview(chatBottom) // setelah scroll → di atasnya
         NSLayoutConstraint.activate([
-            chatScroll.topAnchor.constraint(equalTo: chatBox.topAnchor),
-            chatScroll.leadingAnchor.constraint(equalTo: chatBox.leadingAnchor),
-            chatScroll.trailingAnchor.constraint(equalTo: chatBox.trailingAnchor),
-            chatScroll.bottomAnchor.constraint(equalTo: bottom.topAnchor, constant: -8),
-            bottom.leadingAnchor.constraint(equalTo: chatBox.leadingAnchor, constant: i),
-            bottom.trailingAnchor.constraint(equalTo: chatBox.trailingAnchor, constant: -i),
-            bottom.bottomAnchor.constraint(equalTo: chatBox.bottomAnchor, constant: -i),
+            chatBottom.leadingAnchor.constraint(equalTo: chatBox.leadingAnchor, constant: i),
+            chatBottom.trailingAnchor.constraint(equalTo: chatBox.trailingAnchor, constant: -i),
+            chatBottom.bottomAnchor.constraint(equalTo: chatBox.bottomAnchor, constant: -i),
         ])
         updateControls()
     }
@@ -748,7 +824,8 @@ final class PopoverController: NSViewController {
         rejectButton.isHidden = !hasPending
         undoButton.isHidden = hasPending || undoable == nil
         actionBar.isHidden = !hasPending && undoable == nil
-        actionBar.fill = hasPending ? Theme.warnSoft : Theme.bubble
+        actionIcon.image = UI.symbol(hasPending ? "exclamationmark.circle.fill" : "arrow.uturn.backward.circle", 14)
+        actionIcon.contentTintColor = hasPending ? .systemOrange : Theme.accent
         actionLabel.stringValue = hasPending ? "Perlu konfirmasimu" : "Aksi terakhir sudah dijalankan"
         [confirmButton, rejectButton, undoButton].forEach { $0.isEnabled = !busy }
         input.isEnabled = !busy
@@ -1464,8 +1541,14 @@ final class Updater: NSObject {
         let dest = Bundle.main.bundleURL
         guard let zip = l.zip, let sigURL = l.sig, !Updater.publicKey.isEmpty, dest.pathExtension == "app",
               FileManager.default.isWritableFile(atPath: dest.deletingLastPathComponent().path) else {
-            NSWorkspace.shared.open(l.page)
-            return
+            // Jelaskan kenapa tidak bisa dipasang otomatis, jangan diam-diam membuka GitHub.
+            let why: String
+            if Updater.publicKey.isEmpty { why = "Versi AI Todo ini belum punya kunci publik untuk memeriksa tanda tangan rilis, jadi update otomatis nonaktif. Pasang versi baru ini secara manual sekali; setelah itu update berikutnya bisa otomatis." }
+            else if l.zip == nil { why = "Rilis \(l.version) tidak berisi \(appName).zip." }
+            else if l.sig == nil { why = "Rilis \(l.version) belum ditandatangani (secret AITODO_SIGNING_KEY belum diatur di GitHub)." }
+            else if dest.pathExtension != "app" { why = "AI Todo tidak berjalan dari file .app." }
+            else { why = "Folder \(dest.deletingLastPathComponent().path) tidak bisa ditulis. Pindahkan AITodo.app ke Applications." }
+            return fail(why, l.page)
         }
         menuItem.title = "Mengunduh \(l.version)…"
         menuItem.isEnabled = false

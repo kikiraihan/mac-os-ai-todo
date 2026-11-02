@@ -48,6 +48,15 @@ Rancangan: [`../docs/PRD.md`](../docs/PRD.md). Perbarui setiap tugas selesai.
       mengarahkan ke halaman Model AI
 - [ ] Uji manual popover & Pengaturan di Mac sungguhan
 
+## v0.4.1 — perbaikan popover & input kaca
+
+- [x] Klik kiri ikon tidak membuka apa-apa: `UI.scroll` mem-pin isi ke dokumen scroll tanpa `addSubview` →
+      exception constraint ditelan AppKit, popover batal. `UI.pin` kini selalu memasukkan view ke induknya
+- [x] Input chat & bar aksi = kaca gaya Apple (Liquid Glass di macOS 26, NSVisualEffectView di versi lama),
+      melayang di atas chat sehingga teks yang lewat di belakangnya buram
+- [x] Update: alasan update otomatis tidak bisa jalan ditampilkan (bukan diam-diam membuka GitHub)
+- [ ] Pemilik: kunci tanda tangan rilis (lihat v0.2.0) — tanpa ini update tetap manual
+
 ## Berikutnya
 
 - [x] Deploy otomatis ke VPS (backup, health check, rollback) — `CICD.md`, diuji dengan docker tiruan
