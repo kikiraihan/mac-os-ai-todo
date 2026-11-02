@@ -5,6 +5,7 @@ import { onRemoteChange, refreshData, toast, errorText } from '../store'
 import { timeAgo } from '../dates'
 import BatchCard from '../components/BatchCard.vue'
 import Icon from '../components/Icon.vue'
+import { touch } from '../swipe'
 
 const messages = ref([])
 const batches = ref({})
@@ -108,7 +109,9 @@ async function older() {
   <div class="page chat">
     <div class="page-head">
       <h1>Asisten</h1>
-      <button v-if="messages.length" class="btn sm" @click="clearAll"><Icon name="trash" :size="16" /> Hapus riwayat</button>
+      <button v-if="messages.length" class="btn sm compact" aria-label="Hapus riwayat" @click="clearAll">
+        <Icon name="trash" :size="16" /><span class="btn-label">Hapus riwayat</span>
+      </button>
     </div>
 
     <div ref="list" class="messages">
@@ -131,11 +134,11 @@ async function older() {
     </div>
 
     <div class="composer">
-      <div class="pills suggest">
-        <button v-for="s in suggestions" :key="s" class="pill" type="button" :disabled="sending" @click="send(s)">{{ s }}</button>
+      <div class="carousel suggest">
+        <button v-for="s in suggestions" :key="s" class="chip" type="button" :disabled="sending" @click="send(s)">{{ s }}</button>
       </div>
       <form class="input-row" @submit.prevent="send()">
-        <textarea ref="input" v-model="text" rows="1" maxlength="2000" placeholder="Ketik pesan… (Enter kirim, Shift+Enter baris baru)"
+        <textarea ref="input" v-model="text" rows="1" maxlength="2000" :placeholder="touch ? 'Ketik pesan…' : 'Ketik pesan… (Enter kirim, Shift+Enter baris baru)'"
           :disabled="sending" @keydown="onKey"></textarea>
         <button class="btn primary" :disabled="sending || !text.trim()" aria-label="Kirim"><Icon name="send" /></button>
       </form>
@@ -227,11 +230,6 @@ async function older() {
 }
 .suggest {
   margin-bottom: 8px;
-  flex-wrap: nowrap;
-  overflow-x: auto;
-}
-.suggest .pill {
-  flex-shrink: 0;
 }
 .input-row {
   display: flex;
@@ -244,8 +242,28 @@ async function older() {
   resize: none;
 }
 @media (max-width: 760px) {
+  /* Tinggi layar dikurangi bar menu atas & padding halaman */
   .chat {
-    height: calc(100dvh - 16px - 84px - env(safe-area-inset-bottom));
+    height: calc(100dvh - var(--topbar-h) - 24px - env(safe-area-inset-bottom));
+  }
+  .page-head {
+    margin-bottom: 8px;
+  }
+  .composer {
+    border-top: none;
+    padding-top: 6px;
+  }
+  .input-row .btn.primary {
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    justify-content: center;
+    border-radius: 50%;
+  }
+  .input-row textarea {
+    border-radius: 22px;
+    min-height: 44px;
+    padding-left: 16px;
   }
 }
 </style>

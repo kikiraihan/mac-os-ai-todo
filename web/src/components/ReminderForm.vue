@@ -1,9 +1,10 @@
 <script setup>
 import { computed, ref } from 'vue'
-import { post, put } from '../api'
+import { post, put, del } from '../api'
 import { state, toast, errorText, refreshData } from '../store'
 import { today, addDays, weekdayNames, monthNames } from '../dates'
 import Modal from './Modal.vue'
+import Icon from './Icon.vue'
 
 const props = defineProps({ reminder: { type: Object, default: null } })
 const emit = defineEmits(['close'])
@@ -71,6 +72,21 @@ async function save() {
     else await post('/reminders', body)
     await refreshData()
     toast(r ? 'Pengingat disimpan' : 'Pengingat dibuat')
+    emit('close')
+  } catch (e) {
+    error.value = errorText(e)
+  } finally {
+    busy.value = false
+  }
+}
+
+async function remove() {
+  if (!confirm(`Hapus pengingat “${r.title}”?`)) return
+  busy.value = true
+  try {
+    await del(`/reminders/${r.id}`)
+    await refreshData()
+    toast('Pengingat dihapus')
     emit('close')
   } catch (e) {
     error.value = errorText(e)
@@ -168,6 +184,9 @@ function onTodoPick() {
       </template>
     </form>
     <template #footer>
+      <button v-if="r" class="btn danger push-left" type="button" :disabled="busy" aria-label="Hapus pengingat" @click="remove">
+        <Icon name="trash" :size="16" /><span class="btn-label">Hapus</span>
+      </button>
       <button class="btn" type="button" @click="emit('close')">Batal</button>
       <button class="btn primary" form="rem-form" :disabled="busy">{{ busy ? 'Menyimpan…' : 'Simpan' }}</button>
     </template>
