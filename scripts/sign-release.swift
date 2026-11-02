@@ -4,12 +4,15 @@
 //   swift scripts/sign-release.swift sign <zip> <tag>        → cetak tanda tangan (base64) ke stdout
 //   swift scripts/sign-release.swift verify <zip> <tag> <sig-file> <public-key>
 //
-// Kunci privat dibaca dari env AITODO_SIGNING_KEY, atau dari file ~/.aitodo-signing-key.
+// Kunci privat dibaca dari env AITODO_SIGNING_KEY, atau dari file ~/.aitodo-signing-key,
+// atau (kunci yang sama dengan PasteLAN) dari ~/.pastelan-signing-key.
 // Yang ditandatangani: "AITodo <tag>\n" + isi zip → zip versi lama tidak bisa dipakai untuk tag baru.
 import CryptoKit
 import Foundation
 
 let defaultKeyFile = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".aitodo-signing-key").path
+/// AI Todo memakai kunci yang sama dengan PasteLAN (lihat Updater.publicKey).
+let pastelanKeyFile = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pastelan-signing-key").path
 
 func die(_ msg: String) -> Never {
     FileHandle.standardError.write(Data((msg + "\n").utf8))
@@ -38,9 +41,10 @@ case "keygen":
 case "sign" where args.count == 4:
     let text = ProcessInfo.processInfo.environment["AITODO_SIGNING_KEY"]
         ?? (try? String(contentsOfFile: defaultKeyFile, encoding: .utf8))
+        ?? (try? String(contentsOfFile: pastelanKeyFile, encoding: .utf8))
     guard let text, let raw = Data(base64Encoded: text.trimmingCharacters(in: .whitespacesAndNewlines)),
           let key = try? Curve25519.Signing.PrivateKey(rawRepresentation: raw) else {
-        die("Kunci privat tidak ada / tidak valid (AITODO_SIGNING_KEY atau \(defaultKeyFile)).")
+        die("Kunci privat tidak ada / tidak valid (AITODO_SIGNING_KEY, \(defaultKeyFile), atau \(pastelanKeyFile)).")
     }
     guard let sig = try? key.signature(for: message(zip: args[2], tag: args[3])) else { die("Gagal menandatangani") }
     print(sig.base64EncodedString())
