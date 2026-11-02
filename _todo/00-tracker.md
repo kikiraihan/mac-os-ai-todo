@@ -84,6 +84,16 @@ Rancangan: [`../docs/PRD.md`](../docs/PRD.md). Perbarui setiap tugas selesai.
       sudah jalan tidak bisa di-undo lagi; disebut di teks konfirmasi Mac
 - [ ] Uji manual tombol & menu di Mac sungguhan
 
+## v0.6.0 — daftar todo Hari ini | Semua di tab Manual
+
+- [x] Tab Manual: filter kecil **Hari ini | Semua** (`NSSegmentedControl` kecil di bawah kartu tambah, dengan
+      jumlah). Hari ini (bawaan) = terlambat + hari ini + 3 pengingat berikutnya; Semua = semua todo terbuka
+      per tanggal (Besok, Rab 5 Nov, …) + tanpa tenggat, maks. 200 baris lalu tautan ke browser
+- [x] Pilihan filter diingat (`LocalPrefs.showAllTodos`); saat hari ini kosong ada tautan "Lihat N todo lainnya"
+- [x] `TodoBuckets.upcomingByDay` & `total` di `Client.swift` + tes klien
+- [x] AGENTS.md: prinsip desain gaya Apple (simpel, intuitif, rapi)
+- [ ] Uji manual filter di Mac sungguhan
+
 ## Berikutnya
 
 - [x] Deploy otomatis ke VPS (backup, health check, rollback) — `CICD.md`, diuji dengan docker tiruan

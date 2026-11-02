@@ -82,6 +82,9 @@ check(buckets.overdue.contains { $0.title.hasPrefix("Bayar listrik") }, "kelompo
 check(buckets.today.contains { $0.title.hasPrefix("Beli galon") }, "kelompok hari ini")
 check(buckets.upcoming.contains { $0.id == t1.todo.id }, "kelompok akan datang")
 check(buckets.badge >= 2, "badge = hari ini + terlambat (\(buckets.badge))")
+check(buckets.upcomingByDay.first?.date == tomorrow && buckets.upcomingByDay.first?.todos.contains { $0.id == t1.todo.id } == true,
+      "tampilan Semua: todo mendatang dikelompokkan per tanggal")
+check(buckets.total == buckets.badge + buckets.upcoming.count + buckets.noDate.count, "jumlah semua todo terbuka")
 
 // asisten tanpa AI: shortcut membuat pengingat lewat chat tidak mungkin, jadi pakai /todo + undo
 guard case .success(let rep) = wait({ api.chat("/todo tes dari Mac", $0) }) else { print("chat gagal"); exit(1) }

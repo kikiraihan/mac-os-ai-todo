@@ -400,6 +400,18 @@ struct TodoBuckets {
         today.sort(by: byDue)
         upcoming.sort(by: byDue)
     }
+
+    /// Todo mendatang dikelompokkan per tanggal (urut naik) untuk tampilan "Semua" di tab Manual.
+    var upcomingByDay: [(date: String, todos: [Todo])] {
+        var out: [(date: String, todos: [Todo])] = []
+        for t in upcoming {
+            if out.last?.date == t.dueDate { out[out.count - 1].todos.append(t) } else { out.append((t.dueDate, [t])) }
+        }
+        return out
+    }
+
+    /// Jumlah semua todo terbuka.
+    var total: Int { overdue.count + today.count + upcoming.count + noDate.count }
 }
 
 // MARK: - Notifikasi lokal yang perlu dijadwalkan

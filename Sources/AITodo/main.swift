@@ -2,7 +2,8 @@
 //
 //   • Ikon ✓ di menu bar + angka todo hari ini & terlambat
 //   • Klik ikon = popover: tab Chat (gaya Claude: gelembung pengguna di kanan, jawaban AI penuh lebar)
-//     dan tab Manual (tambah todo, klik lingkaran = tandai selesai); ⌥⌘T buka / tutup popover
+//     dan tab Manual (tambah todo, klik lingkaran = tandai selesai; filter Hari ini | Semua);
+//     ⌥⌘T buka / tutup popover
 //   • Konfirmasi / undo aksi asisten; klik kanan ikon = menu singkat (Pengaturan, Keluar)
 //   • Jendela Pengaturan terpisah (tab Umum, Akun, Ingatan, Tentang — pola PasteLAN)
 //   • Notifikasi lokal untuk pengingat & tenggat (tombol Selesai / Tunda 10 mnt)
@@ -69,6 +70,12 @@ enum LocalPrefs {
     static var hotkey: Bool {
         get { flag("hotkey", default: true) }
         set { d.set(newValue, forKey: "hotkey") }
+    }
+
+    /// Filter daftar di tab Manual: false = Hari ini (bawaan), true = Semua.
+    static var showAllTodos: Bool {
+        get { flag("showAllTodos", default: false) }
+        set { d.set(newValue, forKey: "showAllTodos") }
     }
 }
 
@@ -559,6 +566,14 @@ enum UI {
 ///   │ Jawaban asisten penuh lebar, tanpa    │  ← jawaban AI: teks polos
 ///   │ gelembung.                            │
 ///   └ ( ✦ Tulis pesan…                  ↑ ) ┘  ← kotak input kaca (isi chat di belakangnya buram)
+///
+/// Tab Manual:
+///   ┌ [ Chat | Manual ]                 🌐 ⚙︎ ┐
+///   │ ┌ Judul todo…                       ┐ │  ← kartu tambah todo (tidak berubah)
+///   │ └ Hari ini ▾  Jam        [Tambah]    ┘ │
+///   │ [ Hari ini 3 | Semua 12 ]             │  ← filter kecil: fokus hari ini, atau semua todo terbuka
+///   │ ○ Bayar listrik                       │
+///   └ Sinkron 10.42                         ┘
 final class PopoverController: NSViewController {
     enum Mode: Int { case chat, manual }
     static let size = NSSize(width: 400, height: 600)
@@ -610,6 +625,10 @@ final class PopoverController: NSViewController {
     private let timeField = NSTextField()
     private lazy var addButton = button("Tambah", #selector(addManual))
     private let addError = UI.label("", size: 11, color: Theme.danger)
+    /// Filter daftar: Hari ini (terlambat + hari ini + pengingat) | Semua (semua todo terbuka per tanggal).
+    private let scope = NSSegmentedControl(labels: ["Hari ini", "Semua"], trackingMode: .selectOne, target: nil, action: nil)
+    /// Batas baris di tampilan Semua; sisanya lewat tautan ke browser.
+    static let maxAllRows = 200
     private let listStack = UI.stack([], spacing: 6)
     private lazy var listScroll = UI.scroll(listStack)
     private let syncLabel = UI.label("", size: 11, color: .tertiaryLabelColor)
@@ -943,6 +962,12 @@ final class PopoverController: NSViewController {
         timeField.widthAnchor.constraint(equalToConstant: 92).isActive = true
         addButton.bezelColor = Theme.accent
         addError.isHidden = true
+        scope.controlSize = .small
+        scope.target = self
+        scope.action = #selector(scopeChanged)
+        scope.selectedSegment = LocalPrefs.showAllTodos ? 1 : 0
+        scope.setAccessibilityLabel("Tampilkan todo")
+        scope.toolTip = "Hari ini: terlambat, hari ini & pengingat. Semua: semua todo yang belum selesai."
 
         let opts = UI.stack([duePopup, timeField, NSView(), addButton], vertical: false, spacing: 8)
         let form = UI.stack([titleField, opts, addError], spacing: 8)
@@ -952,7 +977,7 @@ final class PopoverController: NSViewController {
         UI.pin(form, to: card, top: 10, left: 10, bottom: 10, right: 10)
 
         listStack.edgeInsets = NSEdgeInsets(top: 4, left: i, bottom: 12, right: i)
-        for v in [card, listScroll, syncLabel] as [NSView] {
+        for v in [card, scope, listScroll, syncLabel] as [NSView] {
             v.translatesAutoresizingMaskIntoConstraints = false
             manualBox.addSubview(v)
         }
@@ -960,7 +985,9 @@ final class PopoverController: NSViewController {
             card.topAnchor.constraint(equalTo: manualBox.topAnchor, constant: 12),
             card.leadingAnchor.constraint(equalTo: manualBox.leadingAnchor, constant: i),
             card.trailingAnchor.constraint(equalTo: manualBox.trailingAnchor, constant: -i),
-            listScroll.topAnchor.constraint(equalTo: card.bottomAnchor, constant: 8),
+            scope.topAnchor.constraint(equalTo: card.bottomAnchor, constant: 12),
+            scope.leadingAnchor.constraint(equalTo: manualBox.leadingAnchor, constant: i),
+            listScroll.topAnchor.constraint(equalTo: scope.bottomAnchor, constant: 2),
             listScroll.leadingAnchor.constraint(equalTo: manualBox.leadingAnchor),
             listScroll.trailingAnchor.constraint(equalTo: manualBox.trailingAnchor),
             listScroll.bottomAnchor.constraint(equalTo: syncLabel.topAnchor, constant: -6),
@@ -970,23 +997,25 @@ final class PopoverController: NSViewController {
         ])
     }
 
+    private var showAll: Bool { scope.selectedSegment == 1 }
+
     private func rebuildList() {
         listStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         let b = store.buckets
+        scope.setLabel("Hari ini" + (b.badge > 0 ? "  \(b.badge)" : ""), forSegment: 0)
+        scope.setLabel("Semua" + (b.total > 0 ? "  \(b.total)" : ""), forSegment: 1)
         section("Terlambat", b.overdue, color: Theme.danger)
-        section("Hari ini", b.today)
+        section("Hari ini", b.today, showDate: false)
+        if showAll { rebuildAll(b) } else { rebuildToday(b) }
+    }
+
+    /// Hari ini: tetap ringkas — terlambat, hari ini, lalu pengingat 48 jam.
+    private func rebuildToday(_ b: TodoBuckets) {
         if b.overdue.isEmpty && b.today.isEmpty {
             addListRow(UI.label("Tidak ada todo untuk hari ini. Tambah di atas, atau minta asisten di tab Chat.", size: 12,
                                 color: .secondaryLabelColor))
-        }
-        section("Nanti", Array(b.upcoming.prefix(30)))
-        section("Tanpa tenggat", Array(b.noDate.prefix(30)))
-        let more = b.upcoming.count + b.noDate.count - min(30, b.upcoming.count) - min(30, b.noDate.count)
-        if more > 0 {
-            let l = NSButton(title: "\(more) todo lainnya ada di browser", target: self, action: #selector(openWeb))
-            l.isBordered = false
-            l.contentTintColor = Theme.accent
-            addListRow(l)
+            let later = b.upcoming.count + b.noDate.count
+            if later > 0 { addListRow(linkButton("Lihat \(later) todo lainnya", #selector(showAllTapped))) }
         }
 
         let upcoming = store.occurrences.prefix(3)
@@ -1003,6 +1032,35 @@ final class PopoverController: NSViewController {
         }
     }
 
+    /// Semua: semua todo terbuka — terlambat, hari ini, per tanggal (Besok, Rab 5 Nov, …), lalu tanpa tenggat.
+    private func rebuildAll(_ b: TodoBuckets) {
+        if b.total == 0 {
+            addListRow(UI.label("Semua todo sudah selesai. Tambah di atas, atau minta asisten di tab Chat.", size: 12,
+                                color: .secondaryLabelColor))
+            return
+        }
+        var left = max(0, PopoverController.maxAllRows - b.overdue.count - b.today.count)
+        for day in b.upcomingByDay where left > 0 {
+            let name = Clock.friendly(day.date, now: Date(), store.tz)
+            let todos = Array(day.todos.prefix(left))
+            section(name.prefix(1).uppercased() + name.dropFirst(), todos, showDate: false)
+            left -= todos.count
+        }
+        let noDate = Array(b.noDate.prefix(left))
+        section("Tanpa tenggat", noDate)
+        left -= noDate.count
+        let shown = PopoverController.maxAllRows - left
+        if b.total > shown { addListRow(linkButton("\(b.total - shown) todo lainnya ada di browser", #selector(openWeb))) }
+    }
+
+    private func linkButton(_ title: String, _ action: Selector) -> NSButton {
+        let l = NSButton(title: title, target: self, action: action)
+        l.isBordered = false
+        l.contentTintColor = Theme.accent
+        l.alignment = .left
+        return l
+    }
+
     private func addHeader(_ title: String, count: Int?, color: NSColor = .secondaryLabelColor) {
         let h = UI.label(count.map { "\(title)  \($0)" } ?? title, size: 12, weight: .semibold, color: color)
         let wrap = NSView()
@@ -1012,10 +1070,11 @@ final class PopoverController: NSViewController {
         addListRow(wrap)
     }
 
-    private func section(_ title: String, _ todos: [Todo], color: NSColor = .secondaryLabelColor) {
+    /// showDate: false di bawah judul tanggal (Hari ini, Besok, …) supaya tanggal tidak diulang di tiap baris.
+    private func section(_ title: String, _ todos: [Todo], color: NSColor = .secondaryLabelColor, showDate: Bool = true) {
         guard !todos.isEmpty else { return }
         addHeader(title, count: todos.count, color: color)
-        for t in todos { addListRow(todoRow(t)) }
+        for t in todos { addListRow(todoRow(t, showDate: showDate)) }
     }
 
     private func addListRow(_ v: NSView) {
@@ -1025,7 +1084,7 @@ final class PopoverController: NSViewController {
     }
 
     /// Lingkaran di kiri = tandai selesai.
-    private func todoRow(_ t: Todo) -> NSView {
+    private func todoRow(_ t: Todo, showDate: Bool = true) -> NSView {
         let check = NSButton(image: UI.symbol("circle", 16) ?? NSImage(), target: self, action: #selector(completeClicked(_:)))
         check.isBordered = false
         check.contentTintColor = t.priority == "high" ? Theme.danger : .tertiaryLabelColor
@@ -1035,7 +1094,7 @@ final class PopoverController: NSViewController {
         var meta: [String] = []
         if t.priority == "high" { meta.append("Prioritas tinggi") }
         if !t.dueDate.isEmpty {
-            var due = t.dueDate == Clock.ymd(Date(), store.tz) ? "" : Clock.friendly(t.dueDate, now: Date(), store.tz)
+            var due = !showDate || t.dueDate == Clock.ymd(Date(), store.tz) ? "" : Clock.friendly(t.dueDate, now: Date(), store.tz)
             if !t.dueTime.isEmpty { due += (due.isEmpty ? "" : " ") + t.dueTime }
             if !due.isEmpty { meta.append(due) }
         }
@@ -1046,6 +1105,18 @@ final class PopoverController: NSViewController {
         row.alignment = .top
         row.toolTip = t.notes.isEmpty ? nil : t.notes
         return row
+    }
+
+    @objc private func scopeChanged() {
+        LocalPrefs.showAllTodos = showAll
+        rebuildList()
+        listScroll.contentView.scroll(to: .zero)
+        listScroll.reflectScrolledClipView(listScroll.contentView)
+    }
+
+    @objc private func showAllTapped() {
+        scope.selectedSegment = 1
+        scopeChanged()
     }
 
     @objc private func completeClicked(_ sender: NSButton) {
