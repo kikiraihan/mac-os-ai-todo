@@ -134,6 +134,15 @@ Rancangan: [`../docs/PRD.md`](../docs/PRD.md). Perbarui setiap tugas selesai.
 - [ ] Uji manual di Mac sungguhan
 - [ ] Uji notifikasi di iPhone (PWA di Layar Utama) setelah deploy
 
+## v0.8.0 — contoh pertanyaan di chat Mac
+
+- [x] Mac: carousel chip kaca **contoh pertanyaan** di atas kotak input chat (`SuggestionBar`), sama dengan
+      chip di web + "Todo besok apa?" & "Pengingat apa saja yang aktif?". Klik = langsung kirim; geser ke
+      samping (trackpad atau roda mouse), tepi memudar menandakan masih ada chip lain. Sembunyi saat mengetik
+      atau saat menunggu konfirmasi; klik kanan → Sembunyikan, nyalakan lagi di Pengaturan → Umum
+      (`LocalPrefs.showSuggestions`)
+- [ ] Uji manual carousel di Mac sungguhan (macOS 26 Liquid Glass & versi lama)
+
 ## Berikutnya
 
 - [x] Deploy otomatis ke VPS (backup, health check, rollback) — `CICD.md`, diuji dengan docker tiruan
