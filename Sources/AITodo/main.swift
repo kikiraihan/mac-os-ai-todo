@@ -1436,7 +1436,9 @@ final class Updater: NSObject {
 
     /// Kunci publik Ed25519 (base64) dari `swift scripts/sign-release.swift keygen`.
     /// Kosong → update selalu lewat halaman rilis (unduh manual), tidak pernah dipasang otomatis.
-    static let publicKey = ""
+    /// Sengaja sama dengan kunci PasteLAN (pemilik yang sama). Aman: yang ditandatangani diawali "AITodo <tag>\n",
+    /// jadi tanda tangan rilis PasteLAN tidak bisa dipakai untuk AI Todo, begitu juga sebaliknya.
+    static let publicKey = "PTtPJWvtz/ZOCSWubniY+8mQwWJCb5uc/KEb9U1mGTg="
 
     static func verify(zip: URL, tag: String, signature: String) -> Bool {
         guard let k = Data(base64Encoded: publicKey), let key = try? Curve25519.Signing.PublicKey(rawRepresentation: k),

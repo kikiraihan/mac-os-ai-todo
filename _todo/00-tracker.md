@@ -55,7 +55,9 @@ Rancangan: [`../docs/PRD.md`](../docs/PRD.md). Perbarui setiap tugas selesai.
 - [x] Input chat & bar aksi = kaca gaya Apple (Liquid Glass di macOS 26, NSVisualEffectView di versi lama),
       melayang di atas chat sehingga teks yang lewat di belakangnya buram
 - [x] Update: alasan update otomatis tidak bisa jalan ditampilkan (bukan diam-diam membuka GitHub)
-- [ ] Pemilik: kunci tanda tangan rilis (lihat v0.2.0) — tanpa ini update tetap manual
+- [x] Update otomatis memakai kunci tanda tangan yang sama dengan PasteLAN (`Updater.publicKey`)
+- [ ] Pemilik: buat secret `AITODO_SIGNING_KEY` di repo ini = isi `~/.pastelan-signing-key` (sama dengan
+      `PASTELAN_SIGNING_KEY`). Versi 0.4.0 yang sudah terpasang masih tanpa kunci → pasang 0.4.1 manual sekali
 
 ## Berikutnya
 
