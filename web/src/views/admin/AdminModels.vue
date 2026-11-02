@@ -60,6 +60,18 @@ async function move(i, dir) {
   }
 }
 
+// Jadikan model ini yang pertama dicoba asisten (pindah ke posisi teratas).
+async function makePrimary(m) {
+  const ids = [m.id, ...models.value.filter((x) => x.id !== m.id).map((x) => x.id)]
+  try {
+    models.value = (await post('/admin/ai/models/reorder', { ids })).models
+    if (m.status !== 'active') await setStatus(m, 'active')
+    toast(`${m.label} sekarang dipakai lebih dulu`)
+  } catch (e) {
+    toast(errorText(e), 'error')
+  }
+}
+
 async function remove(m) {
   if (!confirm(`Hapus ${m.modelId} dari katalog?`)) return
   try {
@@ -149,10 +161,12 @@ onMounted(() => load().catch((e) => toast(errorText(e), 'error')))
 
     <div class="card">
       <h3>Urutan fallback</h3>
-      <p class="muted small">Asisten mencoba model aktif dari atas ke bawah. Kalau satu penuh (429), error, atau ditolak, ia pindah ke model
+      <p class="muted small">Model yang dipakai asisten = model aktif paling atas yang provider-nya punya API key. Klik
+        <b>Jadikan utama</b> untuk memilihnya. Asisten mencoba model aktif dari atas ke bawah. Kalau satu penuh (429), error, atau ditolak, ia pindah ke model
         berikutnya — tidak pernah ke model berbayar otomatis karena hanya model di katalog ini yang dipakai.</p>
       <p v-if="chain.length" class="small">Sekarang: <span v-for="(m, i) in chain" :key="m.id">{{ i ? ' → ' : '' }}<b>{{ m.label }}</b></span></p>
-      <p v-else class="error">Belum ada model aktif yang provider-nya punya API key.</p>
+      <p v-else class="error">Belum ada model aktif yang provider-nya punya API key. Isi <code>KENARI_API_KEY</code> /
+        <code>AGNES_API_KEY</code> / <code>OPENROUTER_API_KEY</code> di <code>.env</code> server, lalu restart server.</p>
       <div class="row">
         <span class="small muted">Tambah dari daftar API provider:</span>
         <button v-for="p in providers" :key="p.key" class="btn sm" @click="openImport(p.key)">{{ p.name }}</button>
@@ -170,6 +184,7 @@ onMounted(() => load().catch((e) => toast(errorText(e), 'error')))
             </td>
             <td>
               <b>{{ m.label }}</b> <span v-if="m.free" class="tag ok">gratis</span> <span v-if="m.builtin" class="tag">bawaan</span>
+              <span v-if="chain[0]?.id === m.id" class="tag ok">dipakai sekarang</span>
               <div class="small muted mono">{{ m.modelId }}</div>
               <div v-if="m.extraBody" class="small muted mono">{{ m.extraBody }}</div>
             </td>
@@ -185,6 +200,9 @@ onMounted(() => load().catch((e) => toast(errorText(e), 'error')))
             </td>
             <td class="actions">
               <button class="btn sm" :disabled="testing === m.id || !hasKey(m.provider)" @click="test(m)">{{ testing === m.id ? 'Menguji…' : 'Tes' }}</button>
+              <button v-if="chain[0]?.id !== m.id" class="btn sm" :disabled="!hasKey(m.provider)"
+                :title="hasKey(m.provider) ? 'Pindah ke paling atas supaya dipakai lebih dulu' : 'Isi API key provider ini di .env server dulu'"
+                @click="makePrimary(m)">Jadikan utama</button>
               <button v-if="m.status !== 'disabled'" class="btn sm" @click="setStatus(m, 'disabled')">Matikan</button>
               <button v-else class="btn sm" @click="setStatus(m, 'active')">Aktifkan</button>
               <button class="icon-btn" aria-label="Ubah" @click="openEdit(m)"><Icon name="edit" :size="18" /></button>

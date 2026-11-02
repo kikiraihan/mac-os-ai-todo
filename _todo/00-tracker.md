@@ -38,6 +38,16 @@ Rancangan: [`../docs/PRD.md`](../docs/PRD.md). Perbarui setiap tugas selesai.
 - [x] Daftar model Agnes: coba ulang sekali saat 5xx, pesan error gaya new-api/HTML terbaca, model gambar/video
       dibuang, model Agnes ditandai gratis (sebelumnya daftar kosong karena filter "Gratis saja")
 
+## v0.4.0 — UI Mac baru & pilihan model lebih jelas
+
+- [x] Mac: klik ikon menu bar = popover dengan tab **Chat** (gaya Claude: gelembung pengguna di kanan, jawaban AI
+      penuh lebar, kotak input di bawah) dan **Manual** (tambah todo + daftar, klik lingkaran = selesai)
+- [x] Mac: tombol buka di browser & Pengaturan di header popover; klik kanan ikon = menu singkat
+- [x] Mac: jendela Pengaturan terpisah (Umum, Akun, Tentang — pola PasteLAN)
+- [x] Admin → Model AI: tombol **Jadikan utama**, tag **dipakai sekarang**, petunjuk API key; Admin → Asisten
+      mengarahkan ke halaman Model AI
+- [ ] Uji manual popover & Pengaturan di Mac sungguhan
+
 ## Berikutnya
 
 - [x] Deploy otomatis ke VPS (backup, health check, rollback) — `CICD.md`, diuji dengan docker tiruan
