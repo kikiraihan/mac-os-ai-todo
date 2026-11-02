@@ -2,7 +2,8 @@
 //
 //   • Ikon ✓ di menu bar + angka todo hari ini & terlambat
 //   • Klik ikon = popover: tab Chat (gaya Claude: gelembung pengguna di kanan, jawaban AI penuh lebar)
-//     dan tab Manual (tambah todo, klik lingkaran = tandai selesai; filter Hari ini | Semua);
+//     dan tab Manual (tambah todo, klik lingkaran = tandai selesai; filter Hari ini | Semua;
+//     ubah todo: tahan ⌥ lalu klik ✎, klik dua kali judul, atau klik kanan → Ubah…);
 //     ⌥⌘T buka / tutup popover
 //   • Konfirmasi / undo aksi asisten; klik kanan ikon = menu singkat (Pengaturan, Keluar)
 //   • Jendela Pengaturan terpisah (tab Umum, Akun, Ingatan, Tentang — pola PasteLAN)
@@ -572,8 +573,11 @@ enum UI {
 ///   │ ┌ Judul todo…                       ┐ │  ← kartu tambah todo (tidak berubah)
 ///   │ └ Hari ini ▾  Jam        [Tambah]    ┘ │
 ///   │ [ Hari ini 3 | Semua 12 ]             │  ← filter kecil: fokus hari ini, atau semua todo terbuka
-///   │ ○ Bayar listrik                       │
+///   │ ○ Bayar listrik                       │  ← tahan ⌥: ○ berubah jadi ✎ (klik = ubah, bukan selesai)
 ///   └ Sinkron 10.42                         ┘
+///
+/// Mode ubah (satu todo, kartu menggantikan barisnya di daftar — lihat `TodoEditor`):
+///   ⌥ + klik lingkaran · klik dua kali judul · klik kanan → Ubah…   ↩ simpan, esc batal
 final class PopoverController: NSViewController {
     enum Mode: Int { case chat, manual }
     static let size = NSSize(width: 400, height: 600)
@@ -633,6 +637,12 @@ final class PopoverController: NSViewController {
     private let scope = NSSegmentedControl(labels: ["Hari ini", "Semua"], trackingMode: .selectOne, target: nil, action: nil)
     /// Batas baris di tampilan Semua; sisanya lewat tautan ke browser.
     static let maxAllRows = 200
+    // Mode ubah
+    /// Tombol lingkaran yang sedang tampil (id todo → tombol & todo), untuk ganti ikon saat ⌥ ditekan.
+    private var checkButtons: [(button: NSButton, todo: Todo)] = []
+    private var optionDown = false { didSet { if optionDown != oldValue { updateCheckIcons() } } }
+    private var editor: TodoEditor?
+    private var flagsMonitor: Any?
     private let listStack = UI.stack([], spacing: 6)
     private lazy var listScroll = UI.scroll(listStack)
     private let syncLabel = UI.label("", size: 11, color: .tertiaryLabelColor)
@@ -1002,6 +1012,11 @@ final class PopoverController: NSViewController {
         scope.selectedSegment = LocalPrefs.showAllTodos ? 1 : 0
         scope.setAccessibilityLabel("Tampilkan todo")
         scope.toolTip = "Hari ini: terlambat, hari ini & pengingat. Semua: semua todo yang belum selesai."
+        // ⌥ ditahan → lingkaran berubah jadi ✎ (pola tombol alternatif ⌥ di macOS)
+        flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] e in
+            self?.optionDown = e.modifierFlags.contains(.option)
+            return e
+        }
 
         let opts = UI.stack([duePopup, timeField, NSView(), addButton], vertical: false, spacing: 8)
         let form = UI.stack([titleField, opts, addError], spacing: 8)
@@ -1035,12 +1050,17 @@ final class PopoverController: NSViewController {
 
     private func rebuildList() {
         listStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        checkButtons = []
         let b = store.buckets
-        scope.setLabel("Hari ini" + (b.badge > 0 ? "  \(b.badge)" : ""), forSegment: 0)
-        scope.setLabel("Semua" + (b.total > 0 ? "  \(b.total)" : ""), forSegment: 1)
+        updateScopeLabels(b)
         section("Terlambat", b.overdue, color: Theme.danger)
         section("Hari ini", b.today, showDate: false)
         if showAll { rebuildAll(b) } else { rebuildToday(b) }
+    }
+
+    private func updateScopeLabels(_ b: TodoBuckets) {
+        scope.setLabel("Hari ini" + (b.badge > 0 ? "  \(b.badge)" : ""), forSegment: 0)
+        scope.setLabel("Semua" + (b.total > 0 ? "  \(b.total)" : ""), forSegment: 1)
     }
 
     /// Hari ini: tetap ringkas — terlambat, hari ini, lalu pengingat 48 jam.
@@ -1108,7 +1128,9 @@ final class PopoverController: NSViewController {
     private func section(_ title: String, _ todos: [Todo], color: NSColor = .secondaryLabelColor, showDate: Bool = true) {
         guard !todos.isEmpty else { return }
         addHeader(title, count: todos.count, color: color)
-        for t in todos { addListRow(todoRow(t, showDate: showDate)) }
+        for t in todos {
+            if let editor, editor.todo.id == t.id { addListRow(editor) } else { addListRow(todoRow(t, showDate: showDate)) }
+        }
     }
 
     private func addListRow(_ v: NSView) {
@@ -1117,14 +1139,13 @@ final class PopoverController: NSViewController {
         v.widthAnchor.constraint(equalTo: listStack.widthAnchor, constant: -2 * PopoverController.inset).isActive = true
     }
 
-    /// Lingkaran di kiri = tandai selesai.
+    /// Lingkaran di kiri = tandai selesai (⌥ ditahan = ✎ ubah). Klik dua kali judul / klik kanan = ubah.
     private func todoRow(_ t: Todo, showDate: Bool = true) -> NSView {
-        let check = NSButton(image: UI.symbol("circle", 16) ?? NSImage(), target: self, action: #selector(completeClicked(_:)))
+        let check = NSButton(image: NSImage(), target: self, action: #selector(completeClicked(_:)))
         check.isBordered = false
-        check.contentTintColor = t.priority == "high" ? Theme.danger : .tertiaryLabelColor
         check.tag = Int(t.id)
-        check.toolTip = "Tandai selesai"
-        check.setAccessibilityLabel("Tandai “\(t.title)” selesai")
+        styleCheck(check, t)
+        checkButtons.append((check, t))
         var meta: [String] = []
         if t.priority == "high" { meta.append("Prioritas tinggi") }
         if !t.dueDate.isEmpty {
@@ -1135,13 +1156,89 @@ final class PopoverController: NSViewController {
         if !t.list.isEmpty { meta.append(t.list) }
         var texts: [NSView] = [UI.text(t.title, width: PopoverController.contentWidth - 30, size: 13)]
         if !meta.isEmpty { texts.append(UI.label(meta.joined(separator: " · "), size: 11, color: .secondaryLabelColor)) }
-        let row = UI.stack([check, UI.stack(texts, spacing: 1)], vertical: false, spacing: 8)
+        let textStack = UI.stack(texts, spacing: 1)
+        let dbl = TodoClick(target: self, action: #selector(rowDoubleClicked(_:)))
+        dbl.numberOfClicksRequired = 2
+        dbl.todoID = t.id
+        textStack.addGestureRecognizer(dbl)
+        let row = UI.stack([check, textStack], vertical: false, spacing: 8)
         row.alignment = .top
         row.toolTip = t.notes.isEmpty ? nil : t.notes
+        row.menu = rowMenu(t)
         return row
     }
 
+    /// Klik kanan baris: Ubah… / Tandai selesai.
+    private func rowMenu(_ t: Todo) -> NSMenu {
+        let m = NSMenu()
+        for (title, action) in [("Ubah…", #selector(editMenuItem(_:))), ("Tandai selesai", #selector(completeMenuItem(_:)))] {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+            item.target = self
+            item.representedObject = NSNumber(value: t.id)
+            m.addItem(item)
+        }
+        return m
+    }
+
+    private func styleCheck(_ b: NSButton, _ t: Todo) {
+        if optionDown {
+            b.image = UI.symbol("pencil.circle", 16)
+            b.contentTintColor = Theme.accent
+            b.toolTip = "Ubah"
+            b.setAccessibilityLabel("Ubah “\(t.title)”")
+        } else {
+            b.image = UI.symbol("circle", 16)
+            b.contentTintColor = t.priority == "high" ? Theme.danger : .tertiaryLabelColor
+            b.toolTip = "Tandai selesai · ⌥-klik untuk mengubah"
+            b.setAccessibilityLabel("Tandai “\(t.title)” selesai")
+        }
+    }
+
+    private func updateCheckIcons() {
+        for c in checkButtons where c.button.isEnabled { styleCheck(c.button, c.todo) }
+        syncLabel.stringValue = optionDown && mode == .manual ? "Mode ubah: klik ✎ untuk mengubah todo" : app.syncStatus
+    }
+
+    // MARK: Mode ubah
+
+    func beginEdit(_ id: Int64) {
+        guard let t = store.todos.first(where: { $0.id == id }) else { return }
+        let lists = Array(Set(store.todos.map(\.list).filter { !$0.isEmpty })).sorted()
+        let e = TodoEditor(todo: t, lists: lists, tz: store.tz)
+        e.onCancel = { [weak self] in self?.endEdit() }
+        e.onSave = { [weak self, weak e] fields in
+            guard let self, let e else { return }
+            e.busy = true
+            self.app.updateTodo(id, fields) { err in
+                e.busy = false
+                if let err { e.showError(err) } else { self.endEdit() }
+            }
+        }
+        editor = e
+        rebuildList()
+        DispatchQueue.main.async { [weak self, weak e] in
+            guard let self, let e, self.editor === e else { return }
+            e.scrollToVisible(e.bounds)
+            self.view.window?.makeFirstResponder(e.titleField)
+        }
+    }
+
+    private func endEdit() {
+        guard editor != nil else { return }
+        editor = nil
+        rebuildList()
+    }
+
+    @objc private func rowDoubleClicked(_ g: TodoClick) { beginEdit(g.todoID) }
+    @objc private func editMenuItem(_ item: NSMenuItem) { (item.representedObject as? NSNumber).map { beginEdit($0.int64Value) } }
+    @objc private func completeMenuItem(_ item: NSMenuItem) {
+        guard let id = (item.representedObject as? NSNumber)?.int64Value else { return }
+        if editor?.todo.id == id { editor = nil }
+        app.complete(todo: id)
+    }
+
     @objc private func scopeChanged() {
+        editor = nil // ganti filter = batal ubah
         LocalPrefs.showAllTodos = showAll
         rebuildList()
         listScroll.contentView.scroll(to: .zero)
@@ -1154,6 +1251,8 @@ final class PopoverController: NSViewController {
     }
 
     @objc private func completeClicked(_ sender: NSButton) {
+        // ⌥-klik = ubah (dicek langsung dari keyboard, tidak bergantung pada monitor flagsChanged)
+        if NSEvent.modifierFlags.contains(.option) { return beginEdit(Int64(sender.tag)) }
         sender.image = UI.symbol("checkmark.circle.fill", 16)
         sender.contentTintColor = Theme.accent
         sender.isEnabled = false
@@ -1219,7 +1318,16 @@ final class PopoverController: NSViewController {
             offlineNote.stringValue = "Masuk dengan akun AI Todo. Password tidak disimpan: Mac ini mendapat token sendiri di Keychain."
         }
         syncLabel.stringValue = app.syncStatus
-        if online { rebuildList() }
+        if online {
+            // Selama mengubah, daftar tidak dibangun ulang (isi kartu ubah tidak boleh hilang karena sinkron),
+            // kecuali todo yang diubah sudah tidak ada (selesai / dihapus di perangkat lain).
+            if let editor, store.todos.contains(where: { $0.id == editor.todo.id }) {
+                updateScopeLabels(store.buckets)
+            } else {
+                editor = nil
+                rebuildList()
+            }
+        }
         updateControls()
     }
 
@@ -1233,11 +1341,12 @@ final class PopoverController: NSViewController {
     /// Popover baru tampil: fokus ke input & muat riwayat chat terbaru.
     func didShow() {
         guard store.connected else { return }
+        optionDown = NSEvent.modifierFlags.contains(.option)
         if mode == .chat {
             view.window?.makeFirstResponder(input)
             loadHistory()
         } else {
-            view.window?.makeFirstResponder(titleField)
+            view.window?.makeFirstResponder(editor?.titleField ?? titleField)
         }
     }
 
@@ -1283,6 +1392,179 @@ final class PopoverController: NSViewController {
 
     @objc private func openWeb() { app.openWebPage(mode == .chat ? "/" : "/todo") }
     @objc private func openSettings() { app.openSettings() }
+}
+
+// MARK: - Kartu ubah todo (mode ubah di tab Manual)
+
+/// Klik dua kali judul todo → ubah (menyimpan id todo di recognizer).
+final class TodoClick: NSClickGestureRecognizer {
+    var todoID: Int64 = 0
+}
+
+/// Menggantikan baris todo di daftar selama diubah. Tanggal & jam memakai NSDatePicker bawaan macOS
+/// (kalender muncul saat tanggal diklik; jam bisa diketik atau pakai panah).
+///   ┌ Judul todo______________________________ ┐
+///   │ Kategori [Belanja        ▾]  [Normal ▾]  │
+///   │ ☑ Tanggal [2/11/2026]  ☑ Jam [14.30 ⇅]   │
+///   └ pesan galat              [Batal] [Simpan] ┘
+final class TodoEditor: NSView, NSTextFieldDelegate, NSComboBoxDelegate {
+    let todo: Todo
+    let tz: TimeZone
+    let titleField = NSTextField()
+    private let listBox = NSComboBox()
+    private let priority = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let dateCheck = NSButton(checkboxWithTitle: "Tanggal", target: nil, action: nil)
+    private let datePicker = NSDatePicker()
+    private let timeCheck = NSButton(checkboxWithTitle: "Jam", target: nil, action: nil)
+    private let timePicker = NSDatePicker()
+    private let error = UI.label("", size: 11, color: Theme.danger)
+    private let cancelButton = NSButton(title: "Batal", target: nil, action: nil)
+    private let saveButton = NSButton(title: "Simpan", target: nil, action: nil)
+    private static let priorities = ["low", "normal", "high"]
+
+    var onSave: (([String: String]) -> Void)?
+    var onCancel: (() -> Void)?
+    var busy = false { didSet { saveButton.isEnabled = !busy; cancelButton.isEnabled = !busy } }
+
+    init(todo: Todo, lists: [String], tz: TimeZone) {
+        self.todo = todo
+        self.tz = tz
+        super.init(frame: .zero)
+        build(lists)
+    }
+
+    required init?(coder: NSCoder) { fatalError("tidak dipakai") }
+
+    private func build(_ lists: [String]) {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = tz
+        let locale = Locale(identifier: "id_ID")
+
+        titleField.stringValue = todo.title
+        titleField.bezelStyle = .roundedBezel
+        titleField.placeholderString = "Judul todo"
+        titleField.delegate = self
+        titleField.target = self
+        titleField.action = #selector(save)
+        titleField.setAccessibilityLabel("Judul todo")
+
+        listBox.addItems(withObjectValues: lists)
+        listBox.stringValue = todo.list
+        listBox.placeholderString = "Kategori (opsional)"
+        listBox.completes = true
+        listBox.controlSize = .small
+        listBox.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        listBox.delegate = self // ↩ = simpan lewat doCommandBy (action combo box juga terpanggil saat memilih item)
+        listBox.setAccessibilityLabel("Kategori")
+
+        priority.addItems(withTitles: ["Prioritas rendah", "Prioritas normal", "Prioritas tinggi"])
+        priority.selectItem(at: TodoEditor.priorities.firstIndex(of: todo.priority) ?? 1)
+        priority.controlSize = .small
+        priority.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+
+        for p in [datePicker, timePicker] {
+            p.calendar = cal
+            p.timeZone = tz
+            p.locale = locale
+            p.controlSize = .small
+            p.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+            p.isBezeled = true
+            p.drawsBackground = true
+        }
+        datePicker.datePickerStyle = .textField
+        datePicker.datePickerElements = .yearMonthDay
+        datePicker.presentsCalendarOverlay = true // kalender kecil saat diklik (date picker)
+        datePicker.dateValue = Clock.due(todo.dueDate, "12:00", tz) ?? Date()
+        datePicker.setAccessibilityLabel("Tanggal tenggat")
+        timePicker.datePickerStyle = .textFieldAndStepper
+        timePicker.datePickerElements = .hourMinute // time picker 24 jam
+        let today = Clock.ymd(Date(), tz)
+        timePicker.dateValue = Clock.due(today, todo.dueTime.isEmpty ? "09:00" : todo.dueTime, tz) ?? Date()
+        timePicker.setAccessibilityLabel("Jam tenggat")
+
+        for c in [dateCheck, timeCheck] {
+            c.controlSize = .small
+            c.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+            c.target = self
+            c.action = #selector(checksChanged)
+        }
+        dateCheck.state = todo.dueDate.isEmpty ? .off : .on
+        timeCheck.state = todo.dueTime.isEmpty ? .off : .on
+        checksChanged()
+
+        for b in [cancelButton, saveButton] {
+            b.bezelStyle = .rounded
+            b.controlSize = .small
+            b.target = self
+        }
+        cancelButton.action = #selector(cancel)
+        saveButton.action = #selector(save)
+        saveButton.bezelColor = Theme.accent
+        error.isHidden = true
+        error.lineBreakMode = .byTruncatingTail
+        error.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        let meta = UI.stack([listBox, priority], vertical: false, spacing: 8)
+        let when = UI.stack([dateCheck, datePicker, NSView(), timeCheck, timePicker], vertical: false, spacing: 6)
+        let buttons = UI.stack([error, NSView(), cancelButton, saveButton], vertical: false, spacing: 8)
+        let form = UI.stack([titleField, meta, when, buttons], spacing: 8)
+        for v in [titleField, meta, when, buttons] as [NSView] { v.widthAnchor.constraint(equalTo: form.widthAnchor).isActive = true }
+        listBox.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+        let card = RoundedBox(fill: .controlBackgroundColor, stroke: Theme.accent, radius: 12)
+        card.addSubview(form)
+        UI.pin(form, to: card, top: 10, left: 10, bottom: 10, right: 10)
+        card.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(card)
+        UI.pin(card, to: self, top: 4, bottom: 4)
+    }
+
+    /// Jam hanya bisa dipakai kalau ada tanggal (aturan yang sama dengan server & web).
+    @objc private func checksChanged() {
+        let hasDate = dateCheck.state == .on
+        datePicker.isEnabled = hasDate
+        timeCheck.isEnabled = hasDate
+        timePicker.isEnabled = hasDate && timeCheck.state == .on
+    }
+
+    func showError(_ text: String) {
+        error.stringValue = text
+        error.toolTip = text
+        error.isHidden = false
+    }
+
+    @objc private func save() {
+        guard !busy else { return }
+        let title = titleField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { return showError("Judul tidak boleh kosong.") }
+        error.isHidden = true
+        let hasDate = dateCheck.state == .on
+        let hasTime = hasDate && timeCheck.state == .on
+        onSave?([
+            "title": title,
+            "list": listBox.stringValue.trimmingCharacters(in: .whitespacesAndNewlines),
+            "priority": TodoEditor.priorities[max(0, priority.indexOfSelectedItem)],
+            "dueDate": hasDate ? Clock.ymd(datePicker.dateValue, tz) : "",
+            "dueTime": hasTime ? Clock.hm(timePicker.dateValue, tz) : "",
+        ])
+    }
+
+    @objc private func cancel() { onCancel?() }
+
+    /// esc di kolom judul / kategori = batal; ↩ di kategori = simpan.
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        if selector == #selector(NSResponder.cancelOperation(_:)) {
+            cancel()
+            return true
+        }
+        if control === listBox, selector == #selector(NSResponder.insertNewline(_:)) {
+            save()
+            return true
+        }
+        return false
+    }
+
+    override func cancelOperation(_ sender: Any?) { cancel() }
 }
 
 // MARK: Input chat: ↩ kirim, ⇧↩ baris baru
@@ -2228,6 +2510,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         store.api.complete(todo: id) { [weak self] r in
             DispatchQueue.main.async {
                 if case .failure(let e) = r { showError("Gagal menandai selesai", e.description) }
+                self?.store.refresh()
+            }
+        }
+    }
+
+    /// Simpan perubahan dari kartu ubah di tab Manual (validasi akhir tetap di server / internal/core).
+    func updateTodo(_ id: Int64, _ fields: [String: String], done: @escaping (String?) -> Void) {
+        store.api.updateTodo(id, fields) { [weak self] r in
+            DispatchQueue.main.async {
+                switch r {
+                case .success: done(nil)
+                case .failure(let e): done("Gagal menyimpan: \(e.description)")
+                }
                 self?.store.refresh()
             }
         }

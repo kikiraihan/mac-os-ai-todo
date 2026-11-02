@@ -94,7 +94,14 @@ Rancangan: [`../docs/PRD.md`](../docs/PRD.md). Perbarui setiap tugas selesai.
 - [x] AGENTS.md: prinsip desain gaya Apple (simpel, intuitif, rapi)
 - [x] Input chat Mac: ↩ kirim, ⇧↩ (atau ⌥↩) baris baru; kapsul input tumbuh sampai 6 baris lalu menggulir,
       ikon & tombol kirim menempel di baris terakhir
-- [ ] Uji manual filter & input multi-baris di Mac sungguhan
+- [x] Mode ubah todo di tab Manual Mac: tahan ⌥ → ○ jadi ✎ (klik = ubah), klik dua kali judul, atau klik
+      kanan → Ubah… / Tandai selesai. Kartu ubah menggantikan barisnya: judul, kategori (combo box daftar
+      yang ada), prioritas, ☑ Tanggal (NSDatePicker + kalender), ☑ Jam (NSDatePicker 24 jam); ↩ simpan, esc batal.
+      Selama mengubah, sinkron tidak membangun ulang daftar. `Client.swift`: `updateTodo` (PUT) + tes klien
+- [x] Web: klik di mana saja pada kolom tanggal/jam membuka picker (`pickers.js`, desktop); pengingat
+      "Sekali" memakai satu datetime picker (`datetime-local`)
+- [x] AGENTS.md: aturan picker tanggal/jam & pola ⌥
+- [ ] Uji manual filter, input multi-baris, & mode ubah di Mac sungguhan
 
 ## Berikutnya
 

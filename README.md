@@ -45,7 +45,7 @@ Pengaturan → Perangkat). Alternatif: **Pakai token…** dengan token dari hala
 | ✓ + angka | jumlah todo hari ini + terlambat (bisa disembunyikan) |
 | klik ikon (atau ⌥⌘T dari mana saja) | popover; tombol 🌐 = buka di browser, ⚙︎ = jendela Pengaturan |
 | tab **Chat** | gaya Claude: pesanmu di gelembung kanan, jawaban asisten penuh lebar di bawahnya; ↩ kirim, ⇧↩ baris baru; tombol **Ya, lakukan / Batal / Batalkan aksi terakhir** untuk kartu aksi |
-| tab **Manual** | tambah todo (judul, tenggat hari ini/besok/lusa, jam); filter **Hari ini** (terlambat, hari ini, 3 pengingat berikutnya) / **Semua** (semua todo terbuka per tanggal + tanpa tenggat) — klik lingkaran = tandai selesai |
+| tab **Manual** | tambah todo (judul, tenggat hari ini/besok/lusa, jam); filter **Hari ini** (terlambat, hari ini, 3 pengingat berikutnya) / **Semua** (semua todo terbuka per tanggal + tanpa tenggat) — klik lingkaran = tandai selesai; **ubah todo**: tahan ⌥ lalu klik ✎, klik dua kali judul, atau klik kanan → Ubah… (judul, kategori, prioritas, tanggal & jam lewat picker) |
 | klik kanan ikon | menu singkat: buka asisten, tambah todo, Pengaturan…, cek pembaruan, Keluar |
 | Pengaturan (⚙︎) | jendela sendiri: **Umum** (badge, hotkey, notifikasi, buka saat login), **Akun** (server, putuskan), **Tentang** (pembaruan, keluar) |
 | Notifikasi | pengingat & tenggat (10 menit sebelum) sebagai notifikasi Mac, tombol **Selesai** / **Tunda 10 mnt** |

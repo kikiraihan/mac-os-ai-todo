@@ -106,6 +106,19 @@ let plan = NotificationPlan.build(occurrences: up.occurrences, todos: r1.todos, 
 let due = plan.first { $0.todoId == t1.todo.id }
 check(due.map { Clock.hm($0.fireAt, tz) == "08:50" } ?? false, "notifikasi tenggat dijadwalkan 10 menit sebelumnya")
 
+// ubah todo dari tab Manual (mode ubah ⌥)
+if case .success(let ed) = wait({ api.updateTodo(t1.todo.id, ["title": "Telpon bengkel (diubah)", "list": "Rumah",
+                                                             "dueDate": today, "dueTime": "14:30", "priority": "high"], $0) }) {
+    check(ed.todo.title == "Telpon bengkel (diubah)" && ed.todo.list == "Rumah" && ed.todo.dueDate == today
+          && ed.todo.dueTime == "14:30" && ed.todo.priority == "high", "ubah judul, kategori, tanggal, jam, prioritas")
+} else { check(false, "ubah todo") }
+if case .success(let ed) = wait({ api.updateTodo(t1.todo.id, ["dueDate": "", "dueTime": ""], $0) }) {
+    check(ed.todo.dueDate.isEmpty && ed.todo.dueTime.isEmpty && ed.todo.list == "Rumah", "hapus tenggat, kolom lain tetap")
+} else { check(false, "hapus tenggat") }
+if case .failure = wait({ api.updateTodo(t1.todo.id, ["title": "  "], $0) }) {
+    check(true, "judul kosong ditolak server")
+} else { check(false, "judul kosong ditolak server") }
+
 // selesaikan todo
 if case .success(let done) = wait({ api.complete(todo: t1.todo.id, $0) }) {
     check(done.todo.status == "done", "tandai selesai")

@@ -260,6 +260,12 @@ final class APIClient {
         send("POST", "/todos", body: ["title": title, "dueDate": dueDate, "dueTime": dueTime], as: TodoResult.self, completion: c)
     }
 
+    /// Ubah sebagian kolom todo (PUT /api/todos/{id}; kolom yang tidak dikirim tidak berubah).
+    /// Kunci: title, list, priority (low/normal/high), dueDate (YYYY-MM-DD atau ""), dueTime (HH:MM atau "").
+    func updateTodo(_ id: Int64, _ fields: [String: String], _ c: @escaping (Result<TodoResult, APIError>) -> Void) {
+        send("PUT", "/todos/\(id)", body: fields, as: TodoResult.self, completion: c)
+    }
+
     func complete(todo id: Int64, _ c: @escaping (Result<TodoResult, APIError>) -> Void) {
         send("POST", "/todos/\(id)/complete", as: TodoResult.self, completion: c)
     }

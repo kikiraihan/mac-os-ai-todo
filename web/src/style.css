@@ -361,6 +361,7 @@ input[type='text'],
 input[type='password'],
 input[type='date'],
 input[type='time'],
+input[type='datetime-local'],
 input[type='number'],
 input[type='search'],
 select,
@@ -372,6 +373,13 @@ textarea {
   border: 1px solid var(--border);
   border-radius: 9px;
   padding: 8px 10px;
+}
+
+/* Kolom tanggal / jam: klik di mana saja membuka picker (src/pickers.js). */
+input[type='date']:not(:disabled),
+input[type='time']:not(:disabled),
+input[type='datetime-local']:not(:disabled) {
+  cursor: pointer;
 }
 
 input:focus,
