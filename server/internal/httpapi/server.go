@@ -108,6 +108,15 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/push/unsubscribe", s.authed(s.pushUnsubscribe))
 	m.HandleFunc("POST /api/push/test", s.authed(s.pushTest))
 
+	// Admin: sesi & cookie sendiri (adminauth.go), tidak tercampur dengan akun pengguna.
+	m.HandleFunc("POST /api/admin/login", s.api(s.adminLogin))
+	m.HandleFunc("POST /api/admin/logout", s.admin(s.adminLogout))
+	m.HandleFunc("GET /api/admin/me", s.admin(s.adminMe))
+	m.HandleFunc("PUT /api/admin/me/password", s.admin(s.adminChangePassword))
+	m.HandleFunc("GET /api/admin/admins", s.admin(s.adminListAdmins))
+	m.HandleFunc("POST /api/admin/admins", s.admin(s.adminCreateAdmin))
+	m.HandleFunc("PUT /api/admin/admins/{id}", s.admin(s.adminUpdateAdmin))
+	m.HandleFunc("DELETE /api/admin/admins/{id}", s.admin(s.adminDeleteAdmin))
 	m.HandleFunc("GET /api/admin/stats", s.admin(s.adminStats))
 	m.HandleFunc("GET /api/admin/users", s.admin(s.adminListUsers))
 	m.HandleFunc("POST /api/admin/users", s.admin(s.adminCreateUser))
@@ -189,16 +198,6 @@ func (s *Server) authed(h http.HandlerFunc) http.HandlerFunc {
 		ctx := context.WithValue(r.Context(), keyUser, user)
 		ctx = context.WithValue(ctx, keySession, sess)
 		h(w, r.WithContext(ctx))
-	})
-}
-
-func (s *Server) admin(h http.HandlerFunc) http.HandlerFunc {
-	return s.authed(func(w http.ResponseWriter, r *http.Request) {
-		if userOf(r).Role != db.RoleAdmin {
-			writeErr(w, http.StatusForbidden, "khusus admin")
-			return
-		}
-		h(w, r)
 	})
 }
 

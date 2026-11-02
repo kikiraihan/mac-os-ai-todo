@@ -8,6 +8,8 @@ export class ApiError extends Error {
   }
 }
 
+// fn(path): path /admin/... = sesi admin habis; lainnya = sesi pengguna habis.
+// Keduanya terpisah, jadi sesi admin yang habis tidak mengeluarkan mode pengguna.
 let onUnauthorized = () => {}
 export function setUnauthorizedHandler(fn) {
   onUnauthorized = fn
@@ -35,7 +37,7 @@ export async function api(method, path, body, { signal } = {}) {
   } catch {
     data = null
   }
-  if (res.status === 401 && path !== '/login') onUnauthorized()
+  if (res.status === 401 && path !== '/login' && path !== '/admin/login') onUnauthorized(path)
   if (!res.ok) throw new ApiError(res.status, (data && data.error) || `HTTP ${res.status}`)
   return data
 }

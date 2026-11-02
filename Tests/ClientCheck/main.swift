@@ -1,5 +1,5 @@
 // Uji klien Mac (Client.swift) terhadap server Go asli — jalan di Linux & macOS.
-//   AITODO_URL=http://127.0.0.1:8099 AITODO_USER=admin AITODO_PASS=... ./client-check
+//   AITODO_URL=http://127.0.0.1:8099 AITODO_USER=admin AITODO_PASS=... [AITODO_ADMIN_PASS=...] ./client-check
 // Dipakai oleh scripts/test-client.sh.
 import Foundation
 #if canImport(FoundationNetworking)
@@ -34,6 +34,12 @@ guard let base = ServerURL.normalize(env["AITODO_URL"] ?? ""), let user = env["A
 }
 
 let api = APIClient()
+// Password akun admin (terpisah) tidak boleh membuka akun pengguna dengan username sama.
+if let adminPass = env["AITODO_ADMIN_PASS"] {
+    let r = wait { api.loginDevice(base: base, username: user, password: adminPass, device: "Tes", completion: $0) }
+    if case .failure(.server(401, _)) = r { check(true, "password admin → ditolak di login pengguna") }
+    else { check(false, "password admin → ditolak di login pengguna (\(r))") }
+}
 let bad = wait { api.loginDevice(base: base, username: user, password: "salah-sekali-ya", device: "Tes", completion: $0) }
 if case .failure(.server(401, _)) = bad { check(true, "password salah → 401") } else { check(false, "password salah → 401 (\(bad))") }
 
@@ -86,6 +92,11 @@ if let b = rep.batch, case .success(let u) = wait({ api.batch(b.id, "undo", $0) 
 guard case .success(let hist) = wait(api.chatHistory) else { exit(1) }
 check(hist.messages.count >= 2 && !hist.batches.isEmpty, "riwayat chat + kartu aksi")
 
+// hapus riwayat chat (tombol tempat sampah di popover)
+if case .success = wait(api.clearChat), case .success(let empty) = wait(api.chatHistory) {
+    check(empty.messages.count == 0 && empty.batches.isEmpty, "hapus riwayat chat → riwayat & kartu aksi kosong")
+} else { check(false, "hapus riwayat chat") }
+
 // rencana notifikasi: tenggat todo besok 09:00 → 08:50
 guard case .success(let up) = wait({ api.upcoming(hours: 48, $0) }) else { exit(1) }
 let plan = NotificationPlan.build(occurrences: up.occurrences, todos: r1.todos, prefs: me.prefs, tz: tz, now: now)
@@ -96,6 +107,27 @@ check(due.map { Clock.hm($0.fireAt, tz) == "08:50" } ?? false, "notifikasi tengg
 if case .success(let done) = wait({ api.complete(todo: t1.todo.id, $0) }) {
     check(done.todo.status == "done", "tandai selesai")
 } else { check(false, "tandai selesai") }
+
+// ingatan AI (tab Ingatan di Pengaturan Mac)
+guard case .success(let m0) = wait(api.memories) else { print("ingatan gagal"); exit(1) }
+check(m0.limits["profile"] ?? 0 > 0 && m0.maxEntry > 0, "GET /memory: batas & pemakaian")
+if case .success(let added) = wait({ api.addMemory(target: "profile", content: "Suka kopi tanpa gula", $0) }) {
+    check(added.memory.target == "profile" && added.memory.source == "manual", "tambah ingatan")
+    if case .success(let upd) = wait({ api.updateMemory(added.memory.id, content: "Suka kopi susu", $0) }) {
+        check(upd.memory.content == "Suka kopi susu", "ubah ingatan")
+    } else { check(false, "ubah ingatan") }
+    if case .success(let md) = wait(api.exportMemory) { check(md.contains("Suka kopi susu"), "ekspor ingatan .md") }
+    else { check(false, "ekspor ingatan .md") }
+    guard case .success(let m1) = wait(api.memories) else { exit(1) }
+    check(m1.items("profile").count == m0.items("profile").count + 1 && (m1.usage["profile"] ?? 0) > 0, "daftar ingatan per bagian")
+    if case .success = wait({ api.deleteMemory(added.memory.id, $0) }) {
+        guard case .success(let m2) = wait(api.memories) else { exit(1) }
+        check(!m2.memories.contains { $0.id == added.memory.id }, "hapus ingatan")
+    } else { check(false, "hapus ingatan") }
+} else { check(false, "tambah ingatan") }
+if case .failure(.server(400, let msg)) = wait({ api.addMemory(target: "notes", content: "password wifi: rahasia123", $0) }) {
+    check(!msg.isEmpty, "ingatan berisi rahasia ditolak (\(msg))")
+} else { check(false, "ingatan berisi rahasia ditolak") }
 
 // token dicabut → unauthorized
 _ = wait(api.logout)

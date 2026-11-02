@@ -64,8 +64,25 @@ func main() {
 		case "version":
 			fmt.Println(version)
 			return
+		case "admin":
+			// aitodo admin <username> — buat akun admin, atau reset password-nya kalau
+			// sudah ada (juga mengaktifkan lagi & mengeluarkan semua sesinya). Password
+			// dari ADMIN_PASSWORD, atau dibuat acak dan dicetak sekali. Satu-satunya
+			// cara membuat admin selain admin awal dan menu Admin → Akun admin.
+			if len(os.Args) != 3 {
+				log.Fatal("pakai: aitodo admin <username>")
+			}
+			d, err := db.Open(filepath.Join(dataDir, "aitodo.db"))
+			if err != nil {
+				log.Fatalf("buka database: %v", err)
+			}
+			defer d.Close()
+			if err := upsertAdmin(d, os.Args[2]); err != nil {
+				log.Fatalf("admin: %v", err)
+			}
+			return
 		default:
-			log.Fatalf("perintah tidak dikenal: %s (tersedia: backup, version)", os.Args[1])
+			log.Fatalf("perintah tidak dikenal: %s (tersedia: backup, version, admin)", os.Args[1])
 		}
 	}
 	if err := os.MkdirAll(dataDir, 0o700); err != nil {
@@ -168,41 +185,96 @@ func main() {
 	aiCalls.Wait(5 * time.Second)
 }
 
-// bootstrapAdmin membuat akun admin pertama kalau belum ada pengguna sama sekali.
+// bootstrapAdmin membuat akun admin pertama kalau belum ada admin sama sekali.
+// Akun admin terpisah dari akun pengguna (tabel admins): untuk memakai todo,
+// buat akun pengguna di Admin → Pengguna (boleh dengan username yang sama).
 func bootstrapAdmin(d *db.DB) error {
-	n, err := d.CountUsers()
+	n, err := d.CountAdmins()
 	if err != nil || n > 0 {
 		return err
 	}
 	username := getenv("ADMIN_USERNAME", "admin")
-	password := os.Getenv("ADMIN_PASSWORD")
-	generated := false
-	switch {
-	case password == "":
-		b := make([]byte, 18)
-		rand.Read(b)
-		password, generated = base64.RawURLEncoding.EncodeToString(b), true
-	case password == templatePassword:
-		return errors.New("ADMIN_PASSWORD masih password contoh dari .env.example, ganti dengan password acak")
-	}
-	if err := httpapi.CheckPassword(password); err != nil {
+	password, generated, err := adminPassword()
+	if err != nil {
 		return err
 	}
 	hash, err := httpapi.HashPassword(password)
 	if err != nil {
 		return err
 	}
-	if _, err := d.CreateUser(db.User{Username: username, DisplayName: "Admin", PasswordHash: hash, Role: db.RoleAdmin}); err != nil {
+	if _, err := d.CreateAdmin(db.Admin{Username: username, DisplayName: "Admin", PasswordHash: hash}); err != nil {
 		return err
 	}
 	if generated {
-		log.Printf("==================================================")
-		log.Printf("Akun admin awal dibuat (catat sekarang, hanya tampil sekali):")
-		log.Printf("  username: %s", username)
-		log.Printf("  password: %s", password)
-		log.Printf("==================================================")
+		printPassword("Akun admin awal dibuat", username, password)
 	} else {
 		log.Printf("Akun admin awal %q dibuat dari ADMIN_USERNAME/ADMIN_PASSWORD", username)
+	}
+	return nil
+}
+
+// adminPassword: ADMIN_PASSWORD bila diisi (bukan password contoh), selain itu acak.
+func adminPassword() (password string, generated bool, err error) {
+	password = os.Getenv("ADMIN_PASSWORD")
+	switch {
+	case password == "":
+		b := make([]byte, 18)
+		rand.Read(b)
+		password, generated = base64.RawURLEncoding.EncodeToString(b), true
+	case password == templatePassword:
+		return "", false, errors.New("ADMIN_PASSWORD masih password contoh dari .env.example, ganti dengan password acak")
+	}
+	return password, generated, httpapi.CheckPassword(password)
+}
+
+func printPassword(title, username, password string) {
+	log.Printf("==================================================")
+	log.Printf("%s (catat sekarang, hanya tampil sekali):", title)
+	log.Printf("  username: %s", username)
+	log.Printf("  password: %s", password)
+	log.Printf("==================================================")
+}
+
+// upsertAdmin dipakai perintah `aitodo admin <username>` (dari server saja).
+func upsertAdmin(d *db.DB, username string) error {
+	username = strings.TrimSpace(username)
+	if !httpapi.ValidUsername(username) {
+		return errors.New("username 3–32 karakter: huruf, angka, titik, minus, garis bawah")
+	}
+	password, generated, err := adminPassword()
+	if err != nil {
+		return err
+	}
+	hash, err := httpapi.HashPassword(password)
+	if err != nil {
+		return err
+	}
+	title := "Akun admin dibuat"
+	a, err := d.GetAdminByUsername(username)
+	switch {
+	case errors.Is(err, db.ErrNotFound):
+		if _, err := d.CreateAdmin(db.Admin{Username: username, DisplayName: username, PasswordHash: hash}); err != nil {
+			return err
+		}
+	case err != nil:
+		return err
+	default:
+		title = "Password admin direset"
+		if err := d.SetAdminPassword(a.ID, hash); err != nil {
+			return err
+		}
+		a.Disabled = false
+		if err := d.UpdateAdmin(a); err != nil {
+			return err
+		}
+		if err := d.DeleteAdminSessions(a.ID, 0); err != nil {
+			return err
+		}
+	}
+	if generated {
+		printPassword(title, username, password)
+	} else {
+		log.Printf("%s: %q (password dari ADMIN_PASSWORD)", title, username)
 	}
 	return nil
 }

@@ -59,6 +59,31 @@ Rancangan: [`../docs/PRD.md`](../docs/PRD.md). Perbarui setiap tugas selesai.
 - [ ] Pemilik: buat secret `AITODO_SIGNING_KEY` di repo ini = isi `~/.pastelan-signing-key` (sama dengan
       `PASTELAN_SIGNING_KEY`). Versi 0.4.0 yang sudah terpasang masih tanpa kunci → pasang 0.4.1 manual sekali
 
+## v0.5.0 — akun admin terpisah & Ingatan di Mac
+
+- [x] Akun admin terpisah dari akun pengguna: tabel `admins` + `admin_sessions`, cookie `aitodo_admin`
+      (`Path=/api/admin`), token `aia_`, tanpa Bearer. Endpoint pengguna menolak sesi admin & sebaliknya
+- [x] Admin hanya dibuat dari server (`ADMIN_*` saat belum ada admin, `aitodo admin <username>`) atau oleh
+      admin lain (Admin → Akun admin); peran tidak bisa diubah dari akun pengguna; minimal satu admin aktif
+- [x] Migrasi otomatis: `users.role = admin` → akun admin (username & password sama); akun lama tetap
+      pengguna biasa beserta todo, chat, ingatan, dan token Mac
+- [x] Web: mode admin (`/admin`, login `/admin/masuk`) & mode pengguna (`/`), tombol pindah mode kalau
+      kedua akun sudah masuk; halaman Akun admin
+- [x] Mac: tab **Ingatan** di Pengaturan (lihat, tambah, ubah, hapus, ekspor .md) + menu klik kanan
+      "Ingatan AI…"; endpoint ingatan di `Client.swift` + tes klien
+- [x] OpenUI dicatat sebagai tech debt (`_tech_deb/01-openui-chat-mac.md`)
+- [ ] Uji manual tab Ingatan di Mac sungguhan
+- [ ] Pemilik: setelah deploy, masuk lagi di `/admin` (password sama dengan sebelumnya)
+
+## v0.5.1 — hapus riwayat chat di Mac
+
+- [x] Popover: tombol ikon tempat sampah "Hapus riwayat chat" di header (aktif hanya di tab Chat, saat
+      terhubung, tidak busy) + konfirmasi; menu klik kanan "Hapus riwayat chat…"
+- [x] `Client.swift`: `clearChat()` → `DELETE /api/chat` (endpoint lama, server tidak diubah) + tes klien
+- [x] Catatan: server ikut menghapus semua kartu aksi — aksi pending batal tanpa dijalankan, aksi yang
+      sudah jalan tidak bisa di-undo lagi; disebut di teks konfirmasi Mac
+- [ ] Uji manual tombol & menu di Mac sungguhan
+
 ## Berikutnya
 
 - [x] Deploy otomatis ke VPS (backup, health check, rollback) — `CICD.md`, diuji dengan docker tiruan

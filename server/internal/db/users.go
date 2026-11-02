@@ -6,8 +6,9 @@ import (
 )
 
 const (
-	RoleAdmin = "admin"
-	RoleUser  = "user"
+	// RoleUser: satu-satunya peran di tabel users. Admin ada di tabel admins
+	// (lihat admins.go), jadi pengguna tidak bisa "naik" menjadi admin.
+	RoleUser = "user"
 
 	SessionWeb    = "web"
 	SessionDevice = "device"
@@ -54,14 +55,9 @@ func (d *DB) CountUsers() (int, error) {
 	return n, err
 }
 
-func (d *DB) CountActiveAdmins() (int, error) {
-	var n int
-	err := d.QueryRow(`SELECT COUNT(*) FROM users WHERE role = 'admin' AND disabled = 0`).Scan(&n)
-	return n, err
-}
-
 func (d *DB) CreateUser(u User) (User, error) {
 	now := Now()
+	u.Role = RoleUser
 	res, err := d.Exec(`INSERT INTO users (username, display_name, password_hash, role, timezone, disabled, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, u.Username, u.DisplayName, u.PasswordHash, u.Role, u.Timezone, boolInt(u.Disabled), now, now)
 	if err != nil {
@@ -98,8 +94,8 @@ func (d *DB) ListUsers() ([]User, error) {
 }
 
 func (d *DB) UpdateUser(u User) error {
-	_, err := d.Exec(`UPDATE users SET display_name = ?, role = ?, timezone = ?, disabled = ?, updated_at = ? WHERE id = ?`,
-		u.DisplayName, u.Role, u.Timezone, boolInt(u.Disabled), Now(), u.ID)
+	_, err := d.Exec(`UPDATE users SET display_name = ?, timezone = ?, disabled = ?, updated_at = ? WHERE id = ?`,
+		u.DisplayName, u.Timezone, boolInt(u.Disabled), Now(), u.ID)
 	return err
 }
 
@@ -188,6 +184,10 @@ func (d *DB) DeleteUserSessions(userID, keepID int64) error {
 }
 
 func (d *DB) PruneSessions() error {
-	_, err := d.Exec(`DELETE FROM sessions WHERE expires_at <= ?`, Now())
+	now := Now()
+	if _, err := d.Exec(`DELETE FROM sessions WHERE expires_at <= ?`, now); err != nil {
+		return err
+	}
+	_, err := d.Exec(`DELETE FROM admin_sessions WHERE expires_at <= ?`, now)
 	return err
 }

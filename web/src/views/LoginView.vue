@@ -2,7 +2,7 @@
 import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { post } from '../api'
-import { loadMe, refreshData, startSync, errorText } from '../store'
+import { state, loadMe, refreshData, startSync, errorText } from '../store'
 
 const route = useRoute()
 const router = useRouter()
@@ -43,6 +43,9 @@ async function submit() {
       </label>
       <button class="btn primary login-btn" :disabled="busy">{{ busy ? 'Masuk…' : 'Masuk' }}</button>
       <p class="hint">Belum punya akun? Minta admin membuatkannya.</p>
+      <p class="hint">
+        <RouterLink to="/admin">{{ state.admin ? 'Kembali ke mode admin →' : 'Masuk sebagai admin →' }}</RouterLink>
+      </p>
     </form>
   </div>
 </template>
