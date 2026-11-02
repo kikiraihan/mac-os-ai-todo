@@ -45,6 +45,11 @@ Semua tampilan (aplikasi Mac & web) mengikuti gaya desain Apple (Human Interface
   Manual Mac (dropdown Hari ini/Besok/Lusa + kolom jam) — jangan diubah tanpa izin pemilik.
 - Aksi alternatif mengikuti pola macOS: tahan ⌥ untuk menampilkan aksi kedua (mis. ○ selesai → ✎
   ubah), selalu dengan jalan lain yang mudah ditemukan (klik dua kali, klik kanan).
+- **HP (web ≤760px / layar sentuh)**: menu di atas (segmented control), judul besar, tombol utama =
+  ikon bulat, area ketuk ≥40px, input ≥16px (Safari tidak zoom). Aksi baris lewat **gestur geser**
+  (`components/SwipeRow.vue`: kanan = aksi utama, kiri = ubah/hapus, geser penuh = langsung) — tombol
+  ikon kecil hanya untuk mouse. Setiap aksi geser wajib punya jalan lain lewat ketukan (lembar ubah).
+  Filter banyak opsi = carousel chip (`.carousel` + `.chip`), pilihan 2–4 opsi = `.seg`.
 - Fitur baru tidak boleh membuat tampilan yang sudah ada lebih ramai: kalau perlu ruang, sembunyikan
   di balik filter/tab kecil dengan bawaan yang paling ringkas, dan ingat pilihan pengguna.
 

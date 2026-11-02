@@ -16,6 +16,14 @@
   --ok-soft: #dcfae6;
   --radius: 12px;
   --shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 2px 8px rgba(16, 24, 40, 0.06);
+  /* Warna penuh untuk tombol aksi geser (teks putih di atasnya) */
+  --ok-solid: #16a34a;
+  --accent-solid: #0f766e;
+  --warn-solid: #d97706;
+  --danger-solid: #dc2626;
+  --glass: rgba(246, 247, 249, 0.82);
+  /* Tinggi bar menu atas di HP (0 di desktop) */
+  --topbar-h: 0px;
   color-scheme: light;
 }
 
@@ -37,6 +45,8 @@
     --ok: #47cd89;
     --ok-soft: #0f2e1f;
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --accent-solid: #0d9488;
+    --glass: rgba(15, 20, 25, 0.82);
     color-scheme: dark;
   }
 }
@@ -201,54 +211,148 @@ h3 {
   font-size: 0.9rem;
 }
 
-.tabbar {
+.topbar {
   display: none;
 }
 
 @media (max-width: 760px) {
+  :root {
+    --topbar-h: calc(69px + env(safe-area-inset-top));
+  }
+
   .sidebar {
     display: none;
   }
 
-  .main {
-    padding: 16px 16px calc(84px + env(safe-area-inset-bottom));
+  .shell {
+    flex-direction: column;
   }
 
-  .tabbar {
-    display: flex;
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    background: var(--surface);
-    border-top: 1px solid var(--border);
-    padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
+  .main {
+    padding: 12px 16px calc(24px + env(safe-area-inset-bottom));
+  }
+
+  /* Menu di atas (gaya segmented control iOS): kaca buram, menempel saat menggulir */
+  .topbar {
+    display: block;
+    position: sticky;
+    top: 0;
     z-index: 20;
+    padding: calc(8px + env(safe-area-inset-top)) 12px 8px;
+    background: var(--glass);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    backdrop-filter: saturate(180%) blur(20px);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .topbar nav {
+    display: flex;
+    gap: 2px;
+    background: var(--surface-2);
+    border-radius: 12px;
+    padding: 3px;
   }
 
   .tab {
     flex: 1;
+    min-width: 0;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 2px;
+    justify-content: center;
+    gap: 1px;
+    height: 46px;
     font-size: 0.7rem;
+    font-weight: 500;
     color: var(--muted);
     text-decoration: none;
     position: relative;
-    padding: 4px 0;
+    border-radius: 9px;
+    transition: background 0.2s, color 0.2s;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .tab span:not(.badge) {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .tab.active {
+    background: var(--surface);
     color: var(--accent);
     font-weight: 600;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
   }
 
   .tab .badge {
     position: absolute;
-    top: 0;
-    left: 55%;
+    top: 3px;
+    left: calc(50% + 6px);
     margin: 0;
+    padding: 0 5px;
+    min-width: 17px;
+    font-size: 0.68rem;
+  }
+
+  /* Judul besar halaman */
+  h1 {
+    font-size: 1.75rem;
+    letter-spacing: -0.01em;
+  }
+
+  .page-head {
+    margin-bottom: 12px;
+  }
+
+  /* Tombol utama di judul jadi tombol bulat (ikon saja) */
+  .btn.compact {
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    justify-content: center;
+    border-radius: 50%;
+  }
+
+  .btn.compact .btn-label {
+    display: none;
+  }
+
+  /* ≥16px supaya Safari iOS tidak memperbesar halaman saat kolom disentuh */
+  input[type='text'],
+  input[type='password'],
+  input[type='date'],
+  input[type='time'],
+  input[type='datetime-local'],
+  input[type='number'],
+  input[type='search'],
+  select,
+  textarea {
+    font-size: 16px;
+    padding: 10px 12px;
+  }
+
+  /* Dua kolom kalau muat (±160px per kolom), selain itu bertumpuk */
+  .row > label.field.grow {
+    flex: 1 1 160px;
+  }
+}
+
+/* Layar sentuh: area ketuk minimal ±40px */
+@media (pointer: coarse) {
+  .icon-btn {
+    min-width: 40px;
+    min-height: 40px;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .btn {
+    min-height: 40px;
+  }
+
+  .btn.sm {
+    min-height: 34px;
   }
 }
 
@@ -538,6 +642,170 @@ table.table {
   background: var(--warn);
 }
 
+/* Carousel horizontal (filter, saran chat): geser dengan jari, snap per chip, tepi memudar */
+.carousel {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  scroll-padding-inline: 16px;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  padding: 2px 1px;
+  mask-image: linear-gradient(to right, transparent 0, #000 12px, #000 calc(100% - 24px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 12px, #000 calc(100% - 24px), transparent 100%);
+}
+
+.carousel::-webkit-scrollbar {
+  display: none;
+}
+
+.carousel > * {
+  flex-shrink: 0;
+  scroll-snap-align: start;
+}
+
+@media (max-width: 760px) {
+  /* Carousel selebar layar: melewati margin halaman supaya geserannya terasa alami */
+  .carousel {
+    margin-inline: -16px;
+    padding-inline: 16px;
+  }
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.chip .n {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--surface-2);
+  border-radius: 999px;
+  padding: 0 7px;
+  min-width: 20px;
+  text-align: center;
+}
+
+.chip.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+.chip.active .n {
+  color: var(--accent);
+  background: var(--accent-text);
+}
+
+.chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Segmented control (pilihan pendek 2–4 opsi) */
+.seg {
+  display: flex;
+  background: var(--surface-2);
+  border-radius: 9px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.seg button {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 500;
+  height: 32px;
+  border-radius: 7px;
+  cursor: pointer;
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.seg button.on {
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+/* Kolom cari dengan ikon (gaya iOS) */
+.search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface-2);
+  border-radius: 10px;
+  padding: 0 10px;
+  color: var(--muted);
+}
+
+.search input[type='search'] {
+  border: none;
+  background: transparent;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.search:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.search input:focus {
+  outline: none;
+}
+
+/* Kotak centang bulat (gaya Pengingat Apple) */
+input[type='checkbox'].tick {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 22px;
+  height: 22px;
+  margin: 0;
+  border-radius: 50%;
+  border: 2px solid var(--muted);
+  background: transparent center / 14px no-repeat;
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+input[type='checkbox'].tick.high {
+  border-color: var(--danger);
+}
+
+input[type='checkbox'].tick:checked {
+  border-color: var(--accent);
+  background-color: var(--accent);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12l4 4 10-10'/%3E%3C/svg%3E");
+}
+
+input[type='checkbox'].tick:disabled {
+  opacity: 0.5;
+}
+
 /* --- modal & toast -------------------------------------------------------- */
 
 .modal-backdrop {
@@ -598,7 +866,39 @@ table.table {
   .modal {
     border-radius: 16px 16px 0 0;
     max-height: 92dvh;
+    padding-bottom: env(safe-area-inset-bottom);
   }
+
+  /* Pegangan kecil di atas lembar bawah (bottom sheet) */
+  .modal-head {
+    position: relative;
+    padding-top: 20px;
+  }
+
+  .modal-head::before {
+    content: '';
+    position: absolute;
+    top: 7px;
+    left: 50%;
+    width: 36px;
+    height: 5px;
+    margin-left: -18px;
+    border-radius: 3px;
+    background: var(--border);
+  }
+
+  .modal-foot .btn {
+    flex: 1;
+    justify-content: center;
+  }
+
+  .modal-foot .btn.push-left {
+    flex: 0 0 auto;
+  }
+}
+
+.modal-foot .push-left {
+  margin-right: auto;
 }
 
 .toast {
@@ -621,8 +921,12 @@ table.table {
 }
 
 @media (max-width: 760px) {
+  /* HP: toast muncul di atas (seperti banner iOS) supaya tidak menutupi lembar bawah & kolom ketik */
   .toast {
-    bottom: calc(90px + env(safe-area-inset-bottom));
+    top: calc(var(--topbar-h) + 10px);
+    bottom: auto;
+    border-radius: 14px;
+    text-align: center;
   }
 }
 

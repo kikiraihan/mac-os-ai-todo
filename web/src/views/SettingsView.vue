@@ -178,7 +178,7 @@ onMounted(() => {
   <div class="page">
     <div class="page-head">
       <h1>Pengaturan</h1>
-      <button class="btn" @click="doLogout"><Icon name="logout" :size="18" /> Keluar</button>
+      <button class="btn compact" aria-label="Keluar" @click="doLogout"><Icon name="logout" :size="18" /><span class="btn-label">Keluar</span></button>
     </div>
 
     <nav class="card more-menu" aria-label="Menu lain">

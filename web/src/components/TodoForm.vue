@@ -1,11 +1,12 @@
 <script setup>
 import { computed, ref } from 'vue'
-import { post, put } from '../api'
+import { post, put, del } from '../api'
 import { state, toast, errorText, refreshData } from '../store'
 import Modal from './Modal.vue'
+import Icon from './Icon.vue'
 
 const props = defineProps({ todo: { type: Object, default: null }, presetDate: { type: String, default: '' } })
-const emit = defineEmits(['close', 'saved'])
+const emit = defineEmits(['close', 'saved', 'deleted'])
 
 const t = props.todo
 const title = ref(t?.title || '')
@@ -19,6 +20,24 @@ const busy = ref(false)
 const error = ref('')
 
 const lists = computed(() => [...new Set(state.todos.map((x) => x.list).filter(Boolean))].sort())
+
+// Hapus dari lembar ubah (di HP juga bisa lewat geser kiri di daftar).
+async function remove() {
+  const n = state.reminders.filter((r) => r.todoId === t.id && r.active).length
+  if (!confirm(`Hapus “${t.title}”?${n ? ` ${n} pengingatnya ikut terhapus.` : ''}`)) return
+  busy.value = true
+  try {
+    await del(`/todos/${t.id}`)
+    await refreshData()
+    toast('Todo dihapus')
+    emit('deleted')
+    emit('close')
+  } catch (e) {
+    error.value = errorText(e)
+  } finally {
+    busy.value = false
+  }
+}
 
 async function save() {
   error.value = ''
@@ -80,6 +99,9 @@ async function save() {
       <label v-if="dueDate && dueTime" class="check"><input v-model="remind" type="checkbox" /> Buat pengingat di jam tenggat</label>
     </form>
     <template #footer>
+      <button v-if="t" class="btn danger push-left" type="button" :disabled="busy" aria-label="Hapus todo" @click="remove">
+        <Icon name="trash" :size="16" /><span class="btn-label">Hapus</span>
+      </button>
       <button class="btn" type="button" @click="emit('close')">Batal</button>
       <button class="btn primary" form="todo-form" :disabled="busy">{{ busy ? 'Menyimpan…' : 'Simpan' }}</button>
     </template>

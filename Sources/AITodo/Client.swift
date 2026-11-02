@@ -270,6 +270,33 @@ final class APIClient {
         send("POST", "/todos/\(id)/complete", as: TodoResult.self, completion: c)
     }
 
+    // Kelola todo lengkap (tab Todo di Pengaturan Mac) — endpoint yang sama dengan web → Todo.
+
+    /// Daftar todo menurut status: open, done, archived, atau all.
+    func todos(status: String, _ c: @escaping (Result<Todos, APIError>) -> Void) {
+        send("GET", "/todos?status=\(status)", as: Todos.self, completion: c)
+    }
+
+    /// Buat todo dengan kolom lengkap (title, notes, list, priority, dueDate, dueTime).
+    func createTodo(_ fields: [String: String], _ c: @escaping (Result<TodoResult, APIError>) -> Void) {
+        send("POST", "/todos", body: fields, as: TodoResult.self, completion: c)
+    }
+
+    func reopen(todo id: Int64, _ c: @escaping (Result<TodoResult, APIError>) -> Void) {
+        send("POST", "/todos/\(id)/reopen", as: TodoResult.self, completion: c)
+    }
+
+    /// Hapus todo (pengingatnya ikut terhapus di server).
+    func deleteTodo(_ id: Int64, _ c: @escaping (Result<TodoResult, APIError>) -> Void) {
+        send("DELETE", "/todos/\(id)", as: TodoResult.self, completion: c)
+    }
+
+    struct Archived: Decodable { let archived: Int }
+    /// Arsipkan semua todo yang sudah selesai.
+    func archiveDone(_ c: @escaping (Result<Archived, APIError>) -> Void) {
+        send("POST", "/todos/archive-done", as: Archived.self, completion: c)
+    }
+
     struct Ok: Decodable {}
     func snooze(reminder id: Int64, minutes: Int, _ c: @escaping (Result<Ok, APIError>) -> Void) {
         send("POST", "/reminders/\(id)/snooze", body: ["minutes": minutes], as: Ok.self, completion: c)

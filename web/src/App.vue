@@ -63,17 +63,20 @@ const mobileNav = computed(() => (adminMode.value ? mobileAdminNav : mobileUserN
         {{ who }}
       </div>
     </aside>
+    <!-- HP: menu di atas (segmented control), bukan tab bar bawah -->
+    <header class="topbar">
+      <nav :aria-label="adminMode ? 'Menu admin' : 'Menu'">
+        <RouterLink v-for="n in mobileNav" :key="n.to" :to="n.to" class="tab" :exact-active-class="'active'">
+          <Icon :name="n.icon" :size="18" />
+          <span>{{ n.label }}</span>
+          <span v-if="n.to === '/todo' && openCount" class="badge">{{ openCount }}</span>
+        </RouterLink>
+      </nav>
+    </header>
     <main class="main">
       <div v-if="!state.online" class="offline">Offline — perubahan akan tersinkron saat koneksi kembali.</div>
       <RouterView />
     </main>
-    <nav class="tabbar">
-      <RouterLink v-for="n in mobileNav" :key="n.to" :to="n.to" class="tab" :exact-active-class="'active'">
-        <Icon :name="n.icon" />
-        <span>{{ n.label }}</span>
-        <span v-if="n.to === '/todo' && openCount" class="badge">{{ openCount }}</span>
-      </RouterLink>
-    </nav>
   </div>
   <RouterView v-else />
   <Transition name="fade">
