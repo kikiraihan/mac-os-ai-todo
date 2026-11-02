@@ -38,6 +38,11 @@ async function save() {
         <p class="hint">Kalau dimatikan, chat hanya menerima perintah tanpa AI (/todo, /selesai, /hari-ini, /undo). Halaman Todo & Pengingat tetap bisa dipakai.</p>
       </section>
       <section class="card">
+        <h3>Model AI yang dipakai</h3>
+        <p class="muted small">Pilihan model ada di <RouterLink to="/admin/model">Admin → Model AI</RouterLink>: klik <b>Jadikan utama</b> pada
+          model yang diinginkan. Model lain di bawahnya jadi cadangan bila model utama penuh atau error.</p>
+      </section>
+      <section class="card">
         <h3>Persona (identitas asisten)</h3>
         <p class="muted small">Siapa asisten ini dan bagaimana gaya bicaranya — setara SOUL.md di Hermes Agent. Selalu diletakkan paling atas di
           prompt, untuk semua pengguna. Aturan keamanan & format tetap dari server dan tidak bisa ditimpa di sini.</p>

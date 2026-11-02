@@ -43,10 +43,11 @@ Pengaturan → Perangkat). Alternatif: **Pakai token…** dengan token dari hala
 | Di menu bar | Fungsi |
 |---|---|
 | ✓ + angka | jumlah todo hari ini + terlambat (bisa disembunyikan) |
-| klik todo | tandai selesai; tahan ⌥ untuk membuka di browser |
-| Tanya asisten… (⌥⌘T, dari mana saja) | panel chat; tombol **Ya, lakukan / Batal / ↶ Batalkan** untuk kartu aksi |
-| Tambah todo… | input manual: judul, tenggat (hari ini/besok/lusa), jam |
-| Pengingat berikutnya | 3 kemunculan terdekat |
+| klik ikon (atau ⌥⌘T dari mana saja) | popover; tombol 🌐 = buka di browser, ⚙︎ = jendela Pengaturan |
+| tab **Chat** | gaya Claude: pesanmu di gelembung kanan, jawaban asisten penuh lebar di bawahnya; tombol **Ya, lakukan / Batal / Batalkan aksi terakhir** untuk kartu aksi |
+| tab **Manual** | tambah todo (judul, tenggat hari ini/besok/lusa, jam), daftar terlambat / hari ini / nanti — klik lingkaran = tandai selesai; 3 pengingat berikutnya |
+| klik kanan ikon | menu singkat: buka asisten, tambah todo, Pengaturan…, cek pembaruan, Keluar |
+| Pengaturan (⚙︎) | jendela sendiri: **Umum** (badge, hotkey, notifikasi, buka saat login), **Akun** (server, putuskan), **Tentang** (pembaruan, keluar) |
 | Notifikasi | pengingat & tenggat (10 menit sebelum) sebagai notifikasi Mac, tombol **Selesai** / **Tunda 10 mnt** |
 
 Build sendiri (butuh Xcode Command Line Tools): `./scripts/build.sh` → `build/AITodo.app`.
