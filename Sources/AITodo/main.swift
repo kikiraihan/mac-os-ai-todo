@@ -3035,16 +3035,16 @@ final class TodoCell: NSTableCellView {
         if !t.notes.isEmpty { m.append(t.notes.replacingOccurrences(of: "\n", with: " ")) }
         // Todo yang punya pengingat aktif: 🔔 + waktu berbunyi berikutnya di depan keterangan
         let text = NSMutableAttributedString()
-        let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor]
+        let metaAttrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor]
         if let r = reminder, let d = Clock.parseStamp(r.nextFireAt), let bell = UI.symbol("bell.fill", 9)?.withSymbolConfiguration(.init(paletteColors: [Theme.accent])) {
             let icon = NSTextAttachment()
             icon.image = bell
             text.append(NSAttributedString(attachment: icon))
             let name = Clock.friendly(Clock.ymd(d, tz), now: Date(), tz)
             text.append(NSAttributedString(string: " " + name.prefix(1).uppercased() + name.dropFirst() + " " + Clock.hm(d, tz)
-                + (m.isEmpty ? "" : " · "), attributes: attrs))
+                + (m.isEmpty ? "" : " · "), attributes: metaAttrs))
         }
-        text.append(NSAttributedString(string: m.joined(separator: " · "), attributes: attrs))
+        text.append(NSAttributedString(string: m.joined(separator: " · "), attributes: metaAttrs))
         meta.attributedStringValue = text
         meta.lineBreakMode = .byTruncatingTail
         meta.isHidden = text.length == 0
@@ -4345,6 +4345,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         contextMenu.autoenablesItems = false
         NSApp.mainMenu = AppDelegate.editMenu()
+        installEditShortcuts()
 
         notifier.store = store
         notifier.openApp = { [weak self] in self?.showPopover(.chat) }
@@ -4733,6 +4734,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func quit() { NSApp.terminate(nil) }
+
+    private var editMonitor: Any?
+
+    /// Pintasan standar macOS di popover & jendela aplikasi: ⌘C salin, ⌘V tempel, ⌘X potong, ⌘A pilih semua,
+    /// ⌘Z urungkan, ⇧⌘Z ulangi, ⌘W tutup jendela (di popover: tutup popover).
+    /// Aplikasi menu bar tidak punya bilah menu di layar, jadi menu Edit saja kadang tidak menerima pintasan
+    /// (mis. saat popover baru dibuka). Monitor lokal ini meneruskannya langsung ke kolom / daftar yang aktif
+    /// lewat action standar (copy:, paste:, …) — sama dengan menu Edit, hanya lebih pasti sampai.
+    func installEditShortcuts() {
+        editMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
+            let mods = e.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.capsLock, .numericPad, .function])
+            guard mods == .command || mods == [.command, .shift],
+                  let key = e.charactersIgnoringModifiers?.lowercased() else { return e }
+            let plain = mods == .command
+            if key == "w" && plain {
+                if let w = NSApp.keyWindow, w.styleMask.contains(.closable) { w.performClose(nil) } else { self?.closePopover() }
+                return nil
+            }
+            let action: Selector?
+            switch (key, plain) {
+            case ("c", true): action = #selector(NSText.copy(_:))
+            case ("v", true): action = #selector(NSText.paste(_:))
+            case ("x", true): action = #selector(NSText.cut(_:))
+            case ("a", true): action = #selector(NSText.selectAll(_:))
+            case ("z", true): action = Selector(("undo:"))
+            case ("z", false): action = Selector(("redo:"))
+            default: action = nil
+            }
+            // Tidak ada yang menangani (mis. ⌘C tanpa kolom aktif) → biarkan event lewat seperti biasa.
+            guard let action, NSApp.sendAction(action, to: nil, from: nil) else { return e }
+            return nil
+        }
+    }
 
     /// Menu utama tak terlihat (aplikasi menu bar) berisi menu Edit, supaya ⌘C / ⌘V / ⌘X / ⌘A / ⌘Z bekerja di
     /// semua kolom teks, ⌘C di pratinjau detail, dan ⌘C di daftar Pengaturan → Todo.
