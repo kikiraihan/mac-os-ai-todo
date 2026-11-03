@@ -134,14 +134,20 @@ Rancangan: [`../docs/PRD.md`](../docs/PRD.md). Perbarui setiap tugas selesai.
 - [ ] Uji manual di Mac sungguhan
 - [ ] Uji notifikasi di iPhone (PWA di Layar Utama) setelah deploy
 
-## v0.8.0 — contoh pertanyaan di chat Mac
+## v0.8.0 — contoh pertanyaan di chat Mac & filter Pengingat
 
 - [x] Mac: carousel chip kaca **contoh pertanyaan** di atas kotak input chat (`SuggestionBar`), sama dengan
       chip di web + "Todo besok apa?" & "Pengingat apa saja yang aktif?". Klik = langsung kirim; geser ke
       samping (trackpad atau roda mouse), tepi memudar menandakan masih ada chip lain. Sembunyi saat mengetik
       atau saat menunggu konfirmasi; klik kanan → Sembunyikan, nyalakan lagi di Pengaturan → Umum
       (`LocalPrefs.showSuggestions`)
+- [x] Mac tab Manual: pengingat yang terkait todo tidak lagi didaftar terpisah — cukup ikon 🔔 + waktu berbunyi
+      berikutnya di baris todo-nya (tooltip = jadwal). Pengingat tanpa todo pindah ke filter baru **Pengingat**
+      (`Hari ini | Semua | Pengingat`): Akan berbunyi (urut waktu) & Dijeda, tautan "Kelola pengingat di browser";
+      kartu tambah todo disembunyikan di filter ini. Pilihan filter diingat (`LocalPrefs.manualScope`).
+      `Client.swift`: `Reminder` + `reminders()` (GET /api/reminders), ikut disinkron di `Store.refresh` + tes klien
 - [ ] Uji manual carousel di Mac sungguhan (macOS 26 Liquid Glass & versi lama)
+- [ ] Uji manual ikon 🔔 & filter Pengingat di Mac sungguhan
 
 ## Berikutnya
 

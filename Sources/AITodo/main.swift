@@ -76,9 +76,16 @@ enum LocalPrefs {
     }
 
     /// Filter daftar di tab Manual: false = Hari ini (bawaan), true = Semua.
+    /// (Versi ≤0.8.0; sekarang dipakai hanya sebagai nilai awal `manualScope`.)
     static var showAllTodos: Bool {
         get { flag("showAllTodos", default: false) }
         set { d.set(newValue, forKey: "showAllTodos") }
+    }
+
+    /// Filter tab Manual: 0 = Hari ini (bawaan), 1 = Semua, 2 = Pengingat.
+    static var manualScope: Int {
+        get { d.object(forKey: "manualScope") == nil ? (showAllTodos ? 1 : 0) : min(max(d.integer(forKey: "manualScope"), 0), 2) }
+        set { d.set(newValue, forKey: "manualScope") }
     }
 
     /// Carousel contoh pertanyaan di atas kotak input chat (bawaan nyala; disembunyikan lewat klik kanan / Pengaturan).
@@ -101,6 +108,8 @@ final class Store {
     var me: Me?
     var todos: [Todo] = []
     var occurrences: [Occurrence] = []
+    /// Semua pengingat (aktif & dijeda): yang terkait todo → ikon 🔔 di baris todo, sisanya → filter Pengingat.
+    var reminders: [Reminder] = []
     var rev: Int64 = 0
     var lastSync: Date?
     var lastError: String?
@@ -116,6 +125,19 @@ final class Store {
     var tz: TimeZone { Clock.zone(me?.timezone ?? TimeZone.current.identifier) }
     var buckets: TodoBuckets { TodoBuckets(todos, now: Date(), tz: tz) }
     var connected: Bool { api.isConfigured && !needsLogin }
+
+    /// Pengingat aktif terdekat milik sebuah todo (untuk ikon 🔔 di barisnya).
+    func reminder(forTodo id: Int64) -> Reminder? {
+        reminders.filter { $0.todoId == id && $0.active && !$0.nextFireAt.isEmpty }.min { $0.nextFireAt < $1.nextFireAt }
+    }
+
+    /// Pengingat lepas (tanpa todo): yang aktif urut waktu berbunyi berikutnya, lalu yang dijeda.
+    var looseReminders: (active: [Reminder], paused: [Reminder]) {
+        let loose = reminders.filter { $0.todoId == nil }
+        // RFC3339 UTC → urutan string = urutan waktu; yang tanpa jadwal berikutnya di akhir
+        let active = loose.filter(\.active).sorted { ($0.nextFireAt.isEmpty ? "~" : $0.nextFireAt) < ($1.nextFireAt.isEmpty ? "~" : $1.nextFireAt) }
+        return (active, loose.filter { !$0.active }.sorted { $0.title.localizedCompare($1.title) == .orderedAscending })
+    }
 
     func configureFromKeychain() {
         let base = ServerURL.normalize(LocalPrefs.serverURL)
@@ -143,13 +165,14 @@ final class Store {
         me = nil
         todos = []
         occurrences = []
+        reminders = []
         rev = 0
         lastSync = nil
         lastError = nil
         onChange?()
     }
 
-    /// Ambil profil, todo terbuka, dan pengingat 48 jam ke depan.
+    /// Ambil profil, todo terbuka, pengingat 48 jam ke depan, dan daftar pengingat.
     func refresh(_ done: (() -> Void)? = nil) {
         if let done { refreshWaiters.append(done) }
         guard !refreshing else { return }
@@ -167,14 +190,21 @@ final class Store {
                             switch r3 {
                             case .failure(let e): return self.finish(error: e)
                             case .success(let u):
-                                DispatchQueue.main.async {
-                                    self.me = me
-                                    self.todos = t.todos
-                                    self.occurrences = u.occurrences
-                                    self.rev = max(t.rev, u.rev)
-                                    self.lastSync = Date()
-                                    self.lastError = nil
-                                    self.finish(error: nil)
+                                self.api.reminders { r4 in
+                                    switch r4 {
+                                    case .failure(let e): return self.finish(error: e)
+                                    case .success(let rs):
+                                        DispatchQueue.main.async {
+                                            self.me = me
+                                            self.todos = t.todos
+                                            self.occurrences = u.occurrences
+                                            self.reminders = rs.reminders
+                                            self.rev = max(t.rev, u.rev, rs.rev)
+                                            self.lastSync = Date()
+                                            self.lastError = nil
+                                            self.finish(error: nil)
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -762,9 +792,10 @@ enum UI {
 /// Tab Manual:
 ///   ┌ [ Chat | Manual ]                 🌐 ⚙︎ ┐
 ///   │ ┌ Judul todo…                       ┐ │  ← kartu tambah todo (tidak berubah)
-///   │ └ Hari ini ▾  Jam        [Tambah]    ┘ │
-///   │ [ Hari ini 3 | Semua 12 ]             │  ← filter kecil: fokus hari ini, atau semua todo terbuka
+///   │ └ Hari ini ▾  Jam        [Tambah]    ┘ │  ← disembunyikan di filter Pengingat
+///   │ [ Hari ini 3 | Semua 12 | Pengingat 2 ] │  ← filter kecil: hari ini, semua todo terbuka, pengingat lepas
 ///   │ ○ Bayar listrik                       │  ← tahan ⌥: ○ berubah jadi ✎ (klik = ubah, bukan selesai)
+///   │   Prioritas tinggi · 🔔 Besok 08:00    │  ← todo yang punya pengingat: cukup ikon 🔔 + waktu berikutnya
 ///   └ Sinkron 10.42                         ┘
 ///
 /// Mode ubah (satu todo, kartu menggantikan barisnya di daftar — lihat `TodoEditor`):
@@ -835,8 +866,13 @@ final class PopoverController: NSViewController {
     private let timeField = NSTextField()
     private lazy var addButton = button("Tambah", #selector(addManual))
     private let addError = UI.label("", size: 11, color: Theme.danger)
-    /// Filter daftar: Hari ini (terlambat + hari ini + pengingat) | Semua (semua todo terbuka per tanggal).
-    private let scope = NSSegmentedControl(labels: ["Hari ini", "Semua"], trackingMode: .selectOne, target: nil, action: nil)
+    /// Filter daftar: Hari ini (terlambat + hari ini) | Semua (semua todo terbuka per tanggal) |
+    /// Pengingat (pengingat tanpa todo; pengingat milik todo tampil sebagai ikon 🔔 di baris todo-nya).
+    private let scope = NSSegmentedControl(labels: ["Hari ini", "Semua", "Pengingat"], trackingMode: .selectOne, target: nil, action: nil)
+    /// Kartu tambah todo; disembunyikan di filter Pengingat (kartu ini hanya menambah todo).
+    private let addCard = RoundedBox(fill: .controlBackgroundColor, stroke: .separatorColor, radius: 12)
+    private lazy var scopeBelowCard = scope.topAnchor.constraint(equalTo: addCard.bottomAnchor, constant: 12)
+    private lazy var scopeAtTop = scope.topAnchor.constraint(equalTo: manualBox.topAnchor, constant: 12)
     /// Batas baris di tampilan Semua; sisanya lewat tautan ke browser.
     static let maxAllRows = 200
     // Mode ubah
@@ -1237,9 +1273,10 @@ final class PopoverController: NSViewController {
         scope.controlSize = .small
         scope.target = self
         scope.action = #selector(scopeChanged)
-        scope.selectedSegment = LocalPrefs.showAllTodos ? 1 : 0
+        scope.selectedSegment = LocalPrefs.manualScope
         scope.setAccessibilityLabel("Tampilkan todo")
-        scope.toolTip = "Hari ini: terlambat, hari ini & pengingat. Semua: semua todo yang belum selesai."
+        scope.toolTip = "Hari ini: terlambat & hari ini. Semua: semua todo yang belum selesai. " +
+            "Pengingat: pengingat tanpa todo (pengingat milik todo = ikon 🔔 di barisnya)."
         // ⌥ ditahan → lingkaran berubah jadi ✎ (pola tombol alternatif ⌥ di macOS)
         flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] e in
             self?.optionDown = e.modifierFlags.contains(.option)
@@ -1249,7 +1286,7 @@ final class PopoverController: NSViewController {
         let opts = UI.stack([duePopup, timeField, NSView(), addButton], vertical: false, spacing: 8)
         let form = UI.stack([titleField, opts, addError], spacing: 8)
         for v in [titleField, opts] as [NSView] { v.widthAnchor.constraint(equalTo: form.widthAnchor).isActive = true }
-        let card = RoundedBox(fill: .controlBackgroundColor, stroke: .separatorColor, radius: 12)
+        let card = addCard
         card.addSubview(form)
         UI.pin(form, to: card, top: 10, left: 10, bottom: 10, right: 10)
 
@@ -1262,7 +1299,6 @@ final class PopoverController: NSViewController {
             card.topAnchor.constraint(equalTo: manualBox.topAnchor, constant: 12),
             card.leadingAnchor.constraint(equalTo: manualBox.leadingAnchor, constant: i),
             card.trailingAnchor.constraint(equalTo: manualBox.trailingAnchor, constant: -i),
-            scope.topAnchor.constraint(equalTo: card.bottomAnchor, constant: 12),
             scope.leadingAnchor.constraint(equalTo: manualBox.leadingAnchor, constant: i),
             listScroll.topAnchor.constraint(equalTo: scope.bottomAnchor, constant: 2),
             listScroll.leadingAnchor.constraint(equalTo: manualBox.leadingAnchor),
@@ -1272,15 +1308,25 @@ final class PopoverController: NSViewController {
             syncLabel.trailingAnchor.constraint(lessThanOrEqualTo: manualBox.trailingAnchor, constant: -i),
             syncLabel.bottomAnchor.constraint(equalTo: manualBox.bottomAnchor, constant: -10),
         ])
+        updateAddCard()
     }
 
     private var showAll: Bool { scope.selectedSegment == 1 }
+    private var showReminders: Bool { scope.selectedSegment == 2 }
+
+    /// Filter Pengingat: kartu tambah todo disembunyikan, filter naik ke atas.
+    private func updateAddCard() {
+        addCard.isHidden = showReminders
+        scopeBelowCard.isActive = !showReminders
+        scopeAtTop.isActive = showReminders
+    }
 
     private func rebuildList() {
         listStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         checkButtons = []
         let b = store.buckets
         updateScopeLabels(b)
+        if showReminders { return rebuildReminders() }
         section("Terlambat", b.overdue, color: Theme.danger)
         section("Hari ini", b.today, showDate: false)
         if showAll { rebuildAll(b) } else { rebuildToday(b) }
@@ -1289,9 +1335,11 @@ final class PopoverController: NSViewController {
     private func updateScopeLabels(_ b: TodoBuckets) {
         scope.setLabel("Hari ini" + (b.badge > 0 ? "  \(b.badge)" : ""), forSegment: 0)
         scope.setLabel("Semua" + (b.total > 0 ? "  \(b.total)" : ""), forSegment: 1)
+        let loose = store.looseReminders.active.count
+        scope.setLabel("Pengingat" + (loose > 0 ? "  \(loose)" : ""), forSegment: 2)
     }
 
-    /// Hari ini: tetap ringkas — terlambat, hari ini, lalu pengingat 48 jam.
+    /// Hari ini: tetap ringkas — terlambat & hari ini. Pengingat lepas ada di filter Pengingat.
     private func rebuildToday(_ b: TodoBuckets) {
         if b.overdue.isEmpty && b.today.isEmpty {
             addListRow(UI.label("Tidak ada todo untuk hari ini. Tambah di atas, atau minta asisten di tab Chat.", size: 12,
@@ -1299,20 +1347,60 @@ final class PopoverController: NSViewController {
             let later = b.upcoming.count + b.noDate.count
             if later > 0 { addListRow(linkButton("Lihat \(later) todo lainnya", #selector(showAllTapped))) }
         }
+    }
 
-        let upcoming = store.occurrences.prefix(3)
-        if !upcoming.isEmpty {
-            addHeader("Pengingat berikutnya", count: nil)
-            for o in upcoming {
-                let when = Clock.parseStamp(o.at).map { Clock.friendly(Clock.ymd($0, store.tz), now: Date(), store.tz) + " " + Clock.hm($0, store.tz) } ?? ""
-                let icon = NSImageView(image: UI.symbol("bell", 12) ?? NSImage())
-                icon.contentTintColor = .secondaryLabelColor
-                let t = UI.label(o.title, size: 13)
-                let w = UI.label(when, size: 11, color: .secondaryLabelColor)
-                addListRow(UI.stack([icon, UI.stack([t, w], spacing: 1)], vertical: false, spacing: 10))
+    /// Waktu ramah untuk stempel RFC3339, mis. "Besok 08:00" / "Kam 5 Nov 08:00".
+    private func friendlyStamp(_ stamp: String) -> String {
+        guard let d = Clock.parseStamp(stamp) else { return "" }
+        let day = Clock.friendly(Clock.ymd(d, store.tz), now: Date(), store.tz)
+        return day.prefix(1).uppercased() + day.dropFirst() + " " + Clock.hm(d, store.tz)
+    }
+
+    /// Pengingat: hanya pengingat tanpa todo (yang terkait todo cukup ikon 🔔 di baris todo-nya).
+    ///   🔔 Minum obat
+    ///      Besok 08:00 · Tiap hari 08:00
+    private func rebuildReminders() {
+        let (active, paused) = store.looseReminders
+        if active.isEmpty && paused.isEmpty {
+            addListRow(UI.text("Belum ada pengingat. Minta asisten di tab Chat, mis. “ingatkan minum obat tiap hari jam 8”.",
+                               width: PopoverController.contentWidth, size: 12, color: .secondaryLabelColor))
+        }
+        if !active.isEmpty {
+            addHeader("Akan berbunyi", count: active.count)
+            for r in active {
+                var sub = friendlyStamp(r.nextFireAt)
+                // "Sekali, …" sama dengan waktu berikutnya → tidak diulang
+                if !r.scheduleText.isEmpty && !r.scheduleText.hasPrefix("Sekali") {
+                    sub += (sub.isEmpty ? "" : " · ") + r.scheduleText
+                }
+                addListRow(reminderRow(r, subtitle: sub, icon: "bell", tint: Theme.accent))
             }
         }
+        if !paused.isEmpty {
+            addHeader("Dijeda", count: paused.count)
+            for r in paused { addListRow(reminderRow(r, subtitle: r.scheduleText, icon: "bell.slash", tint: .tertiaryLabelColor)) }
+        }
+        addListRow(linkButton("Kelola pengingat di browser", #selector(openReminders)))
     }
+
+    private func reminderRow(_ r: Reminder, subtitle: String, icon: String, tint: NSColor) -> NSView {
+        let iv = NSImageView(image: UI.symbol(icon, 13) ?? NSImage())
+        iv.contentTintColor = tint
+        iv.widthAnchor.constraint(equalToConstant: 16).isActive = true
+        var texts: [NSView] = [UI.text(r.title, width: PopoverController.contentWidth - 30, size: 13)]
+        if !subtitle.isEmpty { texts.append(UI.label(subtitle, size: 11, color: .secondaryLabelColor)) }
+        let row = UI.stack([iv, UI.stack(texts, spacing: 1)], vertical: false, spacing: 8)
+        row.alignment = .top
+        row.toolTip = r.message.isEmpty ? nil : r.message
+        let m = NSMenu()
+        let item = NSMenuItem(title: "Ubah di browser…", action: #selector(openReminders), keyEquivalent: "")
+        item.target = self
+        m.addItem(item)
+        row.menu = m
+        return row
+    }
+
+    @objc private func openReminders() { app.openWebPage("/pengingat") }
 
     /// Semua: semua todo terbuka — terlambat, hari ini, per tanggal (Besok, Rab 5 Nov, …), lalu tanpa tenggat.
     private func rebuildAll(_ b: TodoBuckets) {
@@ -1383,7 +1471,22 @@ final class PopoverController: NSViewController {
         }
         if !t.list.isEmpty { meta.append(t.list) }
         var texts: [NSView] = [UI.text(t.title, width: PopoverController.contentWidth - 30, size: 13)]
-        if !meta.isEmpty { texts.append(UI.label(meta.joined(separator: " · "), size: 11, color: .secondaryLabelColor)) }
+        var metaViews: [NSView] = []
+        if !meta.isEmpty { metaViews.append(UI.label(meta.joined(separator: " · ") + (store.reminder(forTodo: t.id) == nil ? "" : " ·"),
+                                                     size: 11, color: .secondaryLabelColor)) }
+        // Todo yang punya pengingat: cukup ikon 🔔 + waktu berbunyi berikutnya (tidak didaftar terpisah)
+        if let r = store.reminder(forTodo: t.id) {
+            let bell = NSImageView(image: UI.symbol("bell.fill", 9) ?? NSImage())
+            bell.contentTintColor = Theme.accent
+            let when = UI.label(friendlyStamp(r.nextFireAt), size: 11, color: .secondaryLabelColor)
+            let tip = "Pengingat: " + (r.scheduleText.isEmpty ? when.stringValue : r.scheduleText)
+            let group = UI.stack([bell, when], vertical: false, spacing: 3)
+            group.toolTip = tip
+            group.setAccessibilityElement(true)
+            group.setAccessibilityLabel(tip)
+            metaViews.append(group)
+        }
+        if !metaViews.isEmpty { texts.append(UI.stack(metaViews, vertical: false, spacing: 4)) }
         let textStack = UI.stack(texts, spacing: 1)
         let dbl = TodoClick(target: self, action: #selector(rowDoubleClicked(_:)))
         dbl.numberOfClicksRequired = 2
@@ -1467,7 +1570,8 @@ final class PopoverController: NSViewController {
 
     @objc private func scopeChanged() {
         editor = nil // ganti filter = batal ubah
-        LocalPrefs.showAllTodos = showAll
+        LocalPrefs.manualScope = scope.selectedSegment
+        updateAddCard()
         rebuildList()
         listScroll.contentView.scroll(to: .zero)
         listScroll.reflectScrolledClipView(listScroll.contentView)
@@ -1573,6 +1677,8 @@ final class PopoverController: NSViewController {
         if mode == .chat {
             view.window?.makeFirstResponder(input)
             loadHistory()
+        } else if showReminders {
+            view.window?.makeFirstResponder(nil) // kartu tambah todo tersembunyi di filter Pengingat
         } else {
             view.window?.makeFirstResponder(editor?.titleField ?? titleField)
         }
