@@ -46,7 +46,10 @@ Semua tampilan (aplikasi Mac & web) mengikuti gaya desain Apple (Human Interface
 - Aksi alternatif mengikuti pola macOS: tahan ⌥ untuk menampilkan aksi kedua (mis. ○ selesai → ✎
   ubah, menu Salin → Salin judul saja), selalu dengan jalan lain yang mudah ditemukan (klik dua kali, klik kanan).
 - Salin todo = teks polos "Judul" + baris kosong + detail (`TodoCopy` di Mac, `web/src/copy.js`), selalu dengan
-  umpan balik singkat ("Judul & detail disalin").
+  umpan balik singkat ("Judul & detail disalin"). Di popover Mac: klik teks = salin, ikon ○ = selesai, klik dua kali = ubah.
+- Popover Mac: tab **Chat | Todo | Pengingat**; filter "Selesai" selalu paling ujung (✓ di sana = batalkan selesai).
+  Pengingat milik todo = ikon 🔔 di baris todo; tab Pengingat hanya pengingat tanpa todo; kelola lengkap di
+  Pengaturan → Pengingat.
 - **HP (web ≤760px / layar sentuh)**: menu di atas (segmented control), judul besar, tombol utama =
   ikon bulat, area ketuk ≥40px, input ≥16px (Safari tidak zoom). Aksi baris lewat **gestur geser**
   (`components/SwipeRow.vue`: kanan = aksi utama, kiri = ubah/hapus, geser penuh = langsung) — tombol

@@ -149,7 +149,7 @@ Rancangan: [`../docs/PRD.md`](../docs/PRD.md). Perbarui setiap tugas selesai.
 - [ ] Uji manual carousel di Mac sungguhan (macOS 26 Liquid Glass & versi lama)
 - [ ] Uji manual ikon 🔔 & filter Pengingat di Mac sungguhan
 
-## v0.9.0 — detail todo & salin todo
+## v0.9.0 — detail & salin todo, tab Todo | Pengingat, kelola pengingat di Mac
 
 - [x] **Detail todo** (kolom `notes`, opsional; maks 5000 karakter): link, rincian, daftar catatan.
       AI: `todo.update` + `addNotes` menambah detail di bawah yang lama tanpa menimpa (`core.TodoInput.AppendNotes`,
@@ -164,7 +164,21 @@ Rancangan: [`../docs/PRD.md`](../docs/PRD.md). Perbarui setiap tugas selesai.
 - [x] Web: tanda **Detail** di baris (klik = buka/tutup detail di tempat, link bisa diklik — `DetailText.vue` tanpa
       v-html, tombol Salin), tombol salin di baris (desktop, ⌥-klik = judul saja), Salin di lembar ubah,
       label "Catatan" → "Detail (opsional)". Dicek Playwright (desktop, iPhone 13, gelap)
+- [x] Mac popover jadi tiga tab **Chat | Todo | Pengingat** (dulu Chat | Manual). Satu tujuan per tab; "Selesai"
+      selalu filter paling ujung: Todo = `Hari ini | Semua | Selesai`, Pengingat = `Aktif | Selesai`. Di Selesai,
+      klik ✓ = batalkan (todo dibuka lagi / pengingat aktif lagi; jadwal yang sudah lewat → tawaran "Ubah jadwal…").
+      Pilihan filter per tab diingat (`LocalPrefs.todoScope`, `reminderScope`)
+- [x] Klik teks todo / pengingat = **salin** (⌥-klik = judul saja), teks berkedip + "Judul & detail disalin";
+      klik dua kali tetap ubah, ikon ○ tetap selesai. Klik pada tombol Detail tidak ikut menyalin
+- [x] Pengaturan → tab **Pengingat** (`ReminderPage`): Aktif | Selesai, cari, + baru (⌘N), klik dua kali / ↩ ubah,
+      spasi selesai/aktifkan lagi, ⌫ hapus (konfirmasi), ⌘C salin. Lembar `ReminderEditor`: judul, pesan, **todo
+      terkait** (supaya 🔔 tampil di todo-nya), jadwal Sekali / Tiap hari / Tiap minggu (pilih hari) / Tiap bulan;
+      jenis lain (interval, tahunan) tetap diubah lewat web. Menu ikon: "Kelola pengingat…"
+- [x] 🔔 + waktu berikutnya juga di daftar Pengaturan → Todo. `Client.swift`: `ReminderSchedule`, `createReminder`,
+      `updateReminder`, `deleteReminder`, `Todo.completedAt` + tes klien (selesai/aktifkan, ubah & kaitkan ke todo,
+      jadwal lewat ditolak, mingguan, hapus)
 - [ ] Uji manual pratinjau detail, menu Salin (⌥), ⌘C/⌘V di Mac sungguhan
+- [ ] Uji manual tiga tab popover, klik-salin, tab Pengingat di Pengaturan di Mac sungguhan
 
 ## Berikutnya
 

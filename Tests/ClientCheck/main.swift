@@ -119,6 +119,34 @@ if case .success(let rs) = wait(api.reminders) {
     check(loose?.todoId == nil && loose?.active == true && !(loose?.nextFireAt.isEmpty ?? true)
           && !(loose?.scheduleText.isEmpty ?? true), "pengingat lepas: tanpa todo, aktif, ada jadwal")
     check(linked?.todoId == t1.todo.id, "pengingat terkait todo membawa todoId")
+    check(loose?.schedule?.kind == "once" && loose?.schedule?.at == onceAt && loose?.ended == false, "jadwal pengingat terbaca")
+    // kelola pengingat dari Pengaturan → Pengingat / tab Pengingat popover
+    if let loose {
+        if case .success(let p) = wait({ api.updateReminder(loose.id, ["active": false], $0) }) {
+            check(!p.reminder.active && p.reminder.nextFireAt.isEmpty, "tandai selesai (nonaktif)")
+        } else { check(false, "tandai selesai pengingat") }
+        if case .success(let p) = wait({ api.updateReminder(loose.id, ["active": true], $0) }) {
+            check(p.reminder.active && !p.reminder.nextFireAt.isEmpty, "aktifkan lagi")
+        } else { check(false, "aktifkan lagi pengingat") }
+        let daily = ReminderSchedule(kind: "daily", time: "07:15", every: 1)
+        if case .success(let p) = wait({ api.updateReminder(loose.id, ["title": "Minum obat pagi", "todoId": t1.todo.id,
+                                                                        "schedule": daily.body], $0) }) {
+            check(p.reminder.title == "Minum obat pagi" && p.reminder.todoId == t1.todo.id && p.reminder.schedule?.kind == "daily"
+                  && p.reminder.schedule?.time == "07:15", "ubah judul, kaitkan ke todo, jadwal harian")
+        } else { check(false, "ubah pengingat") }
+        let past = ReminderSchedule(kind: "once", at: Clock.ymd(now.addingTimeInterval(-86400), tz) + "T07:00")
+        if case .failure = wait({ api.updateReminder(loose.id, ["schedule": past.body], $0) }) {
+            check(true, "jadwal yang sudah lewat ditolak server")
+        } else { check(false, "jadwal yang sudah lewat ditolak server") }
+        if case .success = wait({ api.deleteReminder(loose.id, $0) }), case .success(let rs2) = wait(api.reminders) {
+            check(!rs2.reminders.contains { $0.id == loose.id }, "hapus pengingat")
+        } else { check(false, "hapus pengingat") }
+    }
+    let weekly = ReminderSchedule(kind: "weekly", time: "18:00", every: 1, weekdays: [1, 3, 5])
+    if case .success(let c) = wait({ api.createReminder(["title": "Olahraga", "schedule": weekly.body], $0) }) {
+        check(c.reminder.active && c.reminder.todoId == nil && c.reminder.schedule?.weekdays == [1, 3, 5], "buat pengingat mingguan")
+        _ = wait({ api.deleteReminder(c.reminder.id, $0) })
+    } else { check(false, "buat pengingat mingguan") }
 } else { check(false, "daftar pengingat") }
 
 // ubah todo dari tab Manual (mode ubah ⌥)
@@ -138,6 +166,9 @@ if case .failure = wait({ api.updateTodo(t1.todo.id, ["title": "  "], $0) }) {
 if case .success(let done) = wait({ api.complete(todo: t1.todo.id, $0) }) {
     check(done.todo.status == "done", "tandai selesai")
 } else { check(false, "tandai selesai") }
+if case .success(let d) = wait({ api.todos(status: "done", $0) }) {
+    check(d.todos.first { $0.id == t1.todo.id }.map { !($0.completedAt ?? "").isEmpty } ?? false, "daftar Selesai membawa completedAt")
+} else { check(false, "daftar todo selesai") }
 
 // kelola todo lengkap (tab Todo di Pengaturan Mac)
 if case .success(let d) = wait({ api.todos(status: "done", $0) }) {
