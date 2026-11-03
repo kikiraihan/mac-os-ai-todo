@@ -106,6 +106,21 @@ let plan = NotificationPlan.build(occurrences: up.occurrences, todos: r1.todos, 
 let due = plan.first { $0.todoId == t1.todo.id }
 check(due.map { Clock.hm($0.fireAt, tz) == "08:50" } ?? false, "notifikasi tenggat dijadwalkan 10 menit sebelumnya")
 
+// pengingat: yang terkait todo (ikon 🔔 di baris todo) vs pengingat lepas (tab Pengingat)
+let onceAt = Clock.ymd(now.addingTimeInterval(86400), tz) + "T07:30"
+for (title, todo) in [("Minum obat", nil), ("Ingat telpon bengkel", t1.todo.id)] as [(String, Int64?)] {
+    var body: [String: Any] = ["title": title, "schedule": ["kind": "once", "at": onceAt]]
+    if let todo { body["todoId"] = todo }
+    if case .failure(let e) = wait({ api.raw("POST", "/reminders", body: body, completion: $0) }) { check(false, "buat pengingat: \(e)") }
+}
+if case .success(let rs) = wait(api.reminders) {
+    let loose = rs.reminders.first { $0.title == "Minum obat" }
+    let linked = rs.reminders.first { $0.title == "Ingat telpon bengkel" }
+    check(loose?.todoId == nil && loose?.active == true && !(loose?.nextFireAt.isEmpty ?? true)
+          && !(loose?.scheduleText.isEmpty ?? true), "pengingat lepas: tanpa todo, aktif, ada jadwal")
+    check(linked?.todoId == t1.todo.id, "pengingat terkait todo membawa todoId")
+} else { check(false, "daftar pengingat") }
+
 // ubah todo dari tab Manual (mode ubah ⌥)
 if case .success(let ed) = wait({ api.updateTodo(t1.todo.id, ["title": "Telpon bengkel (diubah)", "list": "Rumah",
                                                              "dueDate": today, "dueTime": "14:30", "priority": "high"], $0) }) {

@@ -52,6 +52,18 @@ struct Occurrence: Codable, Equatable {
     let at: String
 }
 
+/// Pengingat (GET /api/reminders). todoId nil = pengingat lepas (tab Pengingat di Mac);
+/// todoId terisi = cukup ikon 🔔 di baris todo-nya.
+struct Reminder: Codable, Equatable {
+    let id: Int64
+    let todoId: Int64?
+    let title: String
+    let message: String
+    let nextFireAt: String
+    let active: Bool
+    let scheduleText: String
+}
+
 struct ChatMessage: Codable {
     let id: Int64
     let role: String
@@ -247,6 +259,11 @@ final class APIClient {
     struct Upcoming: Decodable { let occurrences: [Occurrence]; let rev: Int64 }
     func upcoming(hours: Int, _ c: @escaping (Result<Upcoming, APIError>) -> Void) {
         send("GET", "/reminders/upcoming?hours=\(hours)", as: Upcoming.self, completion: c)
+    }
+
+    struct Reminders: Decodable { let reminders: [Reminder]; let rev: Int64 }
+    func reminders(_ c: @escaping (Result<Reminders, APIError>) -> Void) {
+        send("GET", "/reminders", as: Reminders.self, completion: c)
     }
 
     struct Rev: Decodable { let rev: Int64 }

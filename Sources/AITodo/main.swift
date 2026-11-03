@@ -2,6 +2,7 @@
 //
 //   • Ikon ✓ di menu bar + angka todo hari ini & terlambat
 //   • Klik ikon = popover: tab Chat (gaya Claude: gelembung pengguna di kanan, jawaban AI penuh lebar)
+//     + contoh pertanyaan (chip kaca yang bisa digeser, klik = langsung kirim)
 //     dan tab Manual (tambah todo, klik lingkaran = tandai selesai; filter Hari ini | Semua;
 //     ubah todo: tahan ⌥ lalu klik ✎, klik dua kali judul, atau klik kanan → Ubah…);
 //     ⌥⌘T buka / tutup popover
@@ -75,9 +76,22 @@ enum LocalPrefs {
     }
 
     /// Filter daftar di tab Manual: false = Hari ini (bawaan), true = Semua.
+    /// (Versi ≤0.8.0; sekarang dipakai hanya sebagai nilai awal `manualScope`.)
     static var showAllTodos: Bool {
         get { flag("showAllTodos", default: false) }
         set { d.set(newValue, forKey: "showAllTodos") }
+    }
+
+    /// Filter tab Manual: 0 = Hari ini (bawaan), 1 = Semua, 2 = Pengingat.
+    static var manualScope: Int {
+        get { d.object(forKey: "manualScope") == nil ? (showAllTodos ? 1 : 0) : min(max(d.integer(forKey: "manualScope"), 0), 2) }
+        set { d.set(newValue, forKey: "manualScope") }
+    }
+
+    /// Carousel contoh pertanyaan di atas kotak input chat (bawaan nyala; disembunyikan lewat klik kanan / Pengaturan).
+    static var showSuggestions: Bool {
+        get { flag("showSuggestions", default: true) }
+        set { d.set(newValue, forKey: "showSuggestions") }
     }
 
     /// Id kartu aksi yang bar undo-nya sudah ditutup (✕), supaya tidak muncul lagi saat riwayat dimuat ulang.
@@ -94,6 +108,8 @@ final class Store {
     var me: Me?
     var todos: [Todo] = []
     var occurrences: [Occurrence] = []
+    /// Semua pengingat (aktif & dijeda): yang terkait todo → ikon 🔔 di baris todo, sisanya → filter Pengingat.
+    var reminders: [Reminder] = []
     var rev: Int64 = 0
     var lastSync: Date?
     var lastError: String?
@@ -109,6 +125,19 @@ final class Store {
     var tz: TimeZone { Clock.zone(me?.timezone ?? TimeZone.current.identifier) }
     var buckets: TodoBuckets { TodoBuckets(todos, now: Date(), tz: tz) }
     var connected: Bool { api.isConfigured && !needsLogin }
+
+    /// Pengingat aktif terdekat milik sebuah todo (untuk ikon 🔔 di barisnya).
+    func reminder(forTodo id: Int64) -> Reminder? {
+        reminders.filter { $0.todoId == id && $0.active && !$0.nextFireAt.isEmpty }.min { $0.nextFireAt < $1.nextFireAt }
+    }
+
+    /// Pengingat lepas (tanpa todo): yang aktif urut waktu berbunyi berikutnya, lalu yang dijeda.
+    var looseReminders: (active: [Reminder], paused: [Reminder]) {
+        let loose = reminders.filter { $0.todoId == nil }
+        // RFC3339 UTC → urutan string = urutan waktu; yang tanpa jadwal berikutnya di akhir
+        let active = loose.filter(\.active).sorted { ($0.nextFireAt.isEmpty ? "~" : $0.nextFireAt) < ($1.nextFireAt.isEmpty ? "~" : $1.nextFireAt) }
+        return (active, loose.filter { !$0.active }.sorted { $0.title.localizedCompare($1.title) == .orderedAscending })
+    }
 
     func configureFromKeychain() {
         let base = ServerURL.normalize(LocalPrefs.serverURL)
@@ -136,13 +165,14 @@ final class Store {
         me = nil
         todos = []
         occurrences = []
+        reminders = []
         rev = 0
         lastSync = nil
         lastError = nil
         onChange?()
     }
 
-    /// Ambil profil, todo terbuka, dan pengingat 48 jam ke depan.
+    /// Ambil profil, todo terbuka, pengingat 48 jam ke depan, dan daftar pengingat.
     func refresh(_ done: (() -> Void)? = nil) {
         if let done { refreshWaiters.append(done) }
         guard !refreshing else { return }
@@ -160,14 +190,21 @@ final class Store {
                             switch r3 {
                             case .failure(let e): return self.finish(error: e)
                             case .success(let u):
-                                DispatchQueue.main.async {
-                                    self.me = me
-                                    self.todos = t.todos
-                                    self.occurrences = u.occurrences
-                                    self.rev = max(t.rev, u.rev)
-                                    self.lastSync = Date()
-                                    self.lastError = nil
-                                    self.finish(error: nil)
+                                self.api.reminders { r4 in
+                                    switch r4 {
+                                    case .failure(let e): return self.finish(error: e)
+                                    case .success(let rs):
+                                        DispatchQueue.main.async {
+                                            self.me = me
+                                            self.todos = t.todos
+                                            self.occurrences = u.occurrences
+                                            self.reminders = rs.reminders
+                                            self.rev = max(t.rev, u.rev, rs.rev)
+                                            self.lastSync = Date()
+                                            self.lastError = nil
+                                            self.finish(error: nil)
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -468,6 +505,182 @@ final class GlassBox: NSView {
     }
 }
 
+// MARK: Contoh pertanyaan (carousel chip di atas input chat)
+
+/// Satu contoh pertanyaan: ikon SF Symbol + teks yang langsung dikirim ke asisten (sama dengan web).
+struct Suggestion {
+    let icon: String
+    let text: String
+
+    static let all: [Suggestion] = [
+        Suggestion(icon: "sun.max", text: "Apa saja todo hari ini?"),
+        Suggestion(icon: "exclamationmark.circle", text: "Yang terlambat apa?"),
+        Suggestion(icon: "sunrise", text: "Todo besok apa?"),
+        Suggestion(icon: "calendar", text: "Ringkas minggu ini"),
+        Suggestion(icon: "bell", text: "Pengingat apa saja yang aktif?"),
+        Suggestion(icon: "questionmark.circle", text: "/bantuan"),
+    ]
+}
+
+/// Area klik transparan di atas chip: redup saat ditekan (umpan balik seperti tombol sistem).
+final class ChipHit: NSButton {
+    override func mouseDown(with event: NSEvent) {
+        guard isEnabled else { return }
+        superview?.alphaValue = 0.55
+        super.mouseDown(with: event) // loop pelacakan sampai mouse dilepas
+        superview?.alphaValue = 1
+    }
+}
+
+/// Scroll horizontal: roda mouse biasa (atas/bawah) juga menggeser ke samping, trackpad tetap alami.
+final class HScrollView: NSScrollView {
+    override func scrollWheel(with event: NSEvent) {
+        guard abs(event.scrollingDeltaY) > abs(event.scrollingDeltaX), let doc = documentView else {
+            return super.scrollWheel(with: event)
+        }
+        let step = event.hasPreciseScrollingDeltas ? event.scrollingDeltaY : event.scrollingDeltaY * 12
+        let maxX = max(0, doc.frame.width - contentView.bounds.width)
+        let x = min(max(0, contentView.bounds.origin.x - step), maxX)
+        contentView.scroll(to: NSPoint(x: x, y: contentView.bounds.origin.y))
+        reflectScrolledClipView(contentView)
+    }
+}
+
+/// Baris chip kaca yang bisa digeser ke samping (gaya saran di Pesan / Spotlight).
+///   ( ☀︎ Apa saja todo hari ini? ) ( ⓘ Yang terlambat apa? ) ( ☼ To…   ← tepi kanan memudar = masih ada lagi
+/// Klik = langsung kirim. Klik kanan = sembunyikan (bisa dinyalakan lagi di Pengaturan → Umum).
+final class SuggestionBar: NSView {
+    static let chipHeight: CGFloat = 28
+    /// Ruang di sekeliling chip supaya bayangan kaca tidak terpotong oleh scroll.
+    static let pad: CGFloat = 4
+
+    var onPick: ((String) -> Void)?
+    var onHide: (() -> Void)?
+    var isEnabled = true {
+        didSet {
+            hits.forEach { $0.isEnabled = isEnabled }
+            stack.alphaValue = isEnabled ? 1 : 0.5
+        }
+    }
+
+    private let scroll = HScrollView()
+    private let stack = UI.stack([], vertical: false, spacing: 6)
+    private var hits: [ChipHit] = []
+    private let fade = CAGradientLayer()
+
+    init(_ items: [Suggestion]) {
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        let p = SuggestionBar.pad
+        stack.edgeInsets = NSEdgeInsets(top: p, left: p, bottom: p, right: p)
+        for (i, s) in items.enumerated() { stack.addArrangedSubview(chip(s, tag: i)) }
+
+        scroll.hasHorizontalScroller = false
+        scroll.hasVerticalScroller = false
+        scroll.drawsBackground = false
+        scroll.verticalScrollElasticity = .none
+        scroll.horizontalScrollElasticity = .allowed
+        scroll.automaticallyAdjustsContentInsets = false
+        let doc = FlippedView()
+        doc.translatesAutoresizingMaskIntoConstraints = false
+        scroll.documentView = doc
+        UI.pin(stack, to: doc)
+        NSLayoutConstraint.activate([
+            doc.topAnchor.constraint(equalTo: scroll.contentView.topAnchor),
+            doc.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor),
+            doc.heightAnchor.constraint(equalTo: scroll.contentView.heightAnchor),
+        ])
+        // Melebar keluar `pad` di kiri-kanan supaya chip pertama sejajar dengan tepi kotak input.
+        UI.pin(scroll, to: self, top: -p, left: -p, bottom: -p, right: -p)
+        heightAnchor.constraint(equalToConstant: SuggestionBar.chipHeight).isActive = true
+
+        // Tepi memudar menandakan masih ada chip di luar layar (diperbarui saat menggeser).
+        scroll.wantsLayer = true
+        fade.startPoint = CGPoint(x: 0, y: 0.5)
+        fade.endPoint = CGPoint(x: 1, y: 0.5)
+        scroll.layer?.mask = fade
+        scroll.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(self, selector: #selector(updateFade),
+                                               name: NSView.boundsDidChangeNotification, object: scroll.contentView)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
+        setAccessibilityLabel("Contoh pertanyaan")
+        menu = contextMenu()
+    }
+
+    required init?(coder: NSCoder) { fatalError("tidak dipakai") }
+    deinit { NotificationCenter.default.removeObserver(self) }
+
+    private func chip(_ s: Suggestion, tag: Int) -> NSView {
+        let glass = GlassBox(radius: SuggestionBar.chipHeight / 2)
+        let icon = NSImageView(image: UI.symbol(s.icon, 12, weight: .medium) ?? NSImage())
+        icon.contentTintColor = Theme.accent
+        let label = UI.label(s.text, size: 12)
+        let row = UI.stack([icon, label], vertical: false, spacing: 5)
+        UI.pin(row, to: glass.content, top: 0, left: 10, bottom: 0, right: 12)
+        glass.heightAnchor.constraint(equalToConstant: SuggestionBar.chipHeight).isActive = true
+
+        let hit = ChipHit(title: "", target: self, action: #selector(pick(_:)))
+        hit.isBordered = false
+        hit.tag = tag
+        hit.toolTip = "Kirim “\(s.text)” ke asisten"
+        hit.setAccessibilityLabel(s.text)
+        hit.menu = contextMenu()
+        UI.pin(hit, to: glass) // ditambahkan terakhir → di atas isi, menerima klik
+        if glass.shadow != nil { // kaca lama (sebelum macOS 26): bayangan kecil supaya muat di dalam `pad`
+            let sh = NSShadow()
+            sh.shadowColor = NSColor.black.withAlphaComponent(0.12)
+            sh.shadowBlurRadius = 3
+            sh.shadowOffset = NSSize(width: 0, height: -1)
+            glass.shadow = sh
+        }
+        hits.append(hit)
+        return glass
+    }
+
+    private func contextMenu() -> NSMenu {
+        let m = NSMenu()
+        let item = NSMenuItem(title: "Sembunyikan contoh pertanyaan", action: #selector(hide), keyEquivalent: "")
+        item.target = self
+        m.addItem(item)
+        return m
+    }
+
+    @objc private func pick(_ sender: NSButton) {
+        guard sender.tag >= 0, sender.tag < Suggestion.all.count else { return }
+        onPick?(Suggestion.all[sender.tag].text)
+    }
+
+    @objc private func hide() { onHide?() }
+
+    /// Kembali ke chip pertama (dipanggil saat carousel tampil lagi).
+    func scrollToStart() {
+        scroll.contentView.scroll(to: .zero)
+        scroll.reflectScrolledClipView(scroll.contentView)
+    }
+
+    override func layout() {
+        super.layout()
+        updateFade()
+    }
+
+    @objc private func updateFade() {
+        guard let doc = scroll.documentView else { return }
+        let w = max(scroll.bounds.width, 1)
+        let edge = min(24 / w, 0.25)
+        let x = scroll.contentView.bounds.origin.x
+        let left = x > 1          // sudah digeser → tepi kiri ikut memudar
+        let right = x + scroll.contentView.bounds.width < doc.frame.width - 1
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        fade.frame = scroll.bounds
+        let solid = NSColor.black.cgColor, clear = NSColor.clear.cgColor
+        fade.colors = [left ? clear : solid, solid, solid, right ? clear : solid]
+        fade.locations = [0, edge, 1 - edge, 1].map { NSNumber(value: Double($0)) }
+        CATransaction.commit()
+    }
+}
+
 enum UI {
     static func label(_ s: String, size: CGFloat = 13, weight: NSFont.Weight = .regular, color: NSColor = .labelColor) -> NSTextField {
         let l = NSTextField(labelWithString: s)
@@ -573,14 +786,16 @@ enum UI {
 ///   │                       └─────────────┘ │
 ///   │ Jawaban asisten penuh lebar, tanpa    │  ← jawaban AI: teks polos
 ///   │ gelembung.                            │
+///   │ (☀︎ Apa saja todo hari ini?) (ⓘ Yang te… │  ← contoh pertanyaan: chip kaca, geser ke samping (SuggestionBar)
 ///   └ ( ✦ Tulis pesan…                  ↑ ) ┘  ← kotak input kaca (isi chat di belakangnya buram)
 ///
 /// Tab Manual:
 ///   ┌ [ Chat | Manual ]                 🌐 ⚙︎ ┐
 ///   │ ┌ Judul todo…                       ┐ │  ← kartu tambah todo (tidak berubah)
-///   │ └ Hari ini ▾  Jam        [Tambah]    ┘ │
-///   │ [ Hari ini 3 | Semua 12 ]             │  ← filter kecil: fokus hari ini, atau semua todo terbuka
+///   │ └ Hari ini ▾  Jam        [Tambah]    ┘ │  ← disembunyikan di filter Pengingat
+///   │ [ Hari ini 3 | Semua 12 | Pengingat 2 ] │  ← filter kecil: hari ini, semua todo terbuka, pengingat lepas
 ///   │ ○ Bayar listrik                       │  ← tahan ⌥: ○ berubah jadi ✎ (klik = ubah, bukan selesai)
+///   │   Prioritas tinggi · 🔔 Besok 08:00    │  ← todo yang punya pengingat: cukup ikon 🔔 + waktu berikutnya
 ///   └ Sinkron 10.42                         ┘
 ///
 /// Mode ubah (satu todo, kartu menggantikan barisnya di daftar — lihat `TodoEditor`):
@@ -625,6 +840,8 @@ final class PopoverController: NSViewController {
     private let actionLabel = UI.label("", size: 12)
     /// Input + bar aksi yang melayang di atas chat (tingginya dipakai untuk ruang bawah scroll).
     private let chatBottom = UI.stack([], spacing: 8)
+    /// Contoh pertanyaan (carousel chip) di atas input; tampil hanya saat input kosong & tidak ada konfirmasi.
+    private let suggestions = SuggestionBar(Suggestion.all)
     private lazy var confirmButton = button("Ya, lakukan", #selector(confirm))
     private lazy var rejectButton = button("Batal", #selector(reject))
     private lazy var undoButton = button("Batalkan aksi terakhir", #selector(undo))
@@ -649,8 +866,13 @@ final class PopoverController: NSViewController {
     private let timeField = NSTextField()
     private lazy var addButton = button("Tambah", #selector(addManual))
     private let addError = UI.label("", size: 11, color: Theme.danger)
-    /// Filter daftar: Hari ini (terlambat + hari ini + pengingat) | Semua (semua todo terbuka per tanggal).
-    private let scope = NSSegmentedControl(labels: ["Hari ini", "Semua"], trackingMode: .selectOne, target: nil, action: nil)
+    /// Filter daftar: Hari ini (terlambat + hari ini) | Semua (semua todo terbuka per tanggal) |
+    /// Pengingat (pengingat tanpa todo; pengingat milik todo tampil sebagai ikon 🔔 di baris todo-nya).
+    private let scope = NSSegmentedControl(labels: ["Hari ini", "Semua", "Pengingat"], trackingMode: .selectOne, target: nil, action: nil)
+    /// Kartu tambah todo; disembunyikan di filter Pengingat (kartu ini hanya menambah todo).
+    private let addCard = RoundedBox(fill: .controlBackgroundColor, stroke: .separatorColor, radius: 12)
+    private lazy var scopeBelowCard = scope.topAnchor.constraint(equalTo: addCard.bottomAnchor, constant: 12)
+    private lazy var scopeAtTop = scope.topAnchor.constraint(equalTo: manualBox.topAnchor, constant: 12)
     /// Batas baris di tampilan Semua; sisanya lewat tautan ke browser.
     static let maxAllRows = 200
     // Mode ubah
@@ -793,9 +1015,12 @@ final class PopoverController: NSViewController {
 
         // Chat memenuhi seluruh area; input & bar aksi melayang di atasnya → teks yang lewat di belakang jadi buram.
         chatScroll.automaticallyAdjustsContentInsets = false
+        suggestions.onPick = { [weak self] text in self?.sendMessage(text) }
+        suggestions.onHide = { [weak self] in self?.app.toggleSuggestions() }
         chatBottom.addArrangedSubview(actionBar)
+        chatBottom.addArrangedSubview(suggestions)
         chatBottom.addArrangedSubview(inputGlass)
-        for v in [actionBar, inputGlass] { v.widthAnchor.constraint(equalTo: chatBottom.widthAnchor).isActive = true }
+        for v in [actionBar, suggestions, inputGlass] { v.widthAnchor.constraint(equalTo: chatBottom.widthAnchor).isActive = true }
         UI.pin(chatScroll, to: chatBox)
         chatBottom.translatesAutoresizingMaskIntoConstraints = false
         chatBox.addSubview(chatBottom) // setelah scroll → di atasnya
@@ -910,6 +1135,7 @@ final class PopoverController: NSViewController {
         [confirmButton, rejectButton, undoButton].forEach { $0.isEnabled = !busy }
         input.isEnabled = !busy
         sendBox.alphaValue = busy ? 0.4 : 1
+        updateSuggestions()
         // Hapus riwayat: hanya di tab Chat, saat terhubung, dan tidak sedang menunggu server
         clearButton.isEnabled = !busy && store.connected && mode == .chat
     }
@@ -951,8 +1177,23 @@ final class PopoverController: NSViewController {
         }
     }
 
+    /// Carousel contoh pertanyaan: sembunyi saat mengetik, saat menunggu konfirmasi, atau dimatikan pengguna.
+    private func updateSuggestions() {
+        var typed = input.stringValue
+        if let editor = input.currentEditor() { typed = editor.string }
+        let show = LocalPrefs.showSuggestions && pending == nil && typed.isEmpty
+        if show && suggestions.isHidden { suggestions.scrollToStart() }
+        suggestions.isHidden = !show
+        suggestions.isEnabled = !busy && store.connected
+    }
+
     @objc private func send() {
-        let text = input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        sendMessage(input.stringValue)
+    }
+
+    /// Kirim pesan dari kotak input atau dari chip contoh pertanyaan.
+    private func sendMessage(_ raw: String) {
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !busy, store.connected else { return }
         input.stringValue = ""
         resizeInput()
@@ -1032,9 +1273,10 @@ final class PopoverController: NSViewController {
         scope.controlSize = .small
         scope.target = self
         scope.action = #selector(scopeChanged)
-        scope.selectedSegment = LocalPrefs.showAllTodos ? 1 : 0
+        scope.selectedSegment = LocalPrefs.manualScope
         scope.setAccessibilityLabel("Tampilkan todo")
-        scope.toolTip = "Hari ini: terlambat, hari ini & pengingat. Semua: semua todo yang belum selesai."
+        scope.toolTip = "Hari ini: terlambat & hari ini. Semua: semua todo yang belum selesai. " +
+            "Pengingat: pengingat tanpa todo (pengingat milik todo = ikon 🔔 di barisnya)."
         // ⌥ ditahan → lingkaran berubah jadi ✎ (pola tombol alternatif ⌥ di macOS)
         flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] e in
             self?.optionDown = e.modifierFlags.contains(.option)
@@ -1044,7 +1286,7 @@ final class PopoverController: NSViewController {
         let opts = UI.stack([duePopup, timeField, NSView(), addButton], vertical: false, spacing: 8)
         let form = UI.stack([titleField, opts, addError], spacing: 8)
         for v in [titleField, opts] as [NSView] { v.widthAnchor.constraint(equalTo: form.widthAnchor).isActive = true }
-        let card = RoundedBox(fill: .controlBackgroundColor, stroke: .separatorColor, radius: 12)
+        let card = addCard
         card.addSubview(form)
         UI.pin(form, to: card, top: 10, left: 10, bottom: 10, right: 10)
 
@@ -1057,7 +1299,6 @@ final class PopoverController: NSViewController {
             card.topAnchor.constraint(equalTo: manualBox.topAnchor, constant: 12),
             card.leadingAnchor.constraint(equalTo: manualBox.leadingAnchor, constant: i),
             card.trailingAnchor.constraint(equalTo: manualBox.trailingAnchor, constant: -i),
-            scope.topAnchor.constraint(equalTo: card.bottomAnchor, constant: 12),
             scope.leadingAnchor.constraint(equalTo: manualBox.leadingAnchor, constant: i),
             listScroll.topAnchor.constraint(equalTo: scope.bottomAnchor, constant: 2),
             listScroll.leadingAnchor.constraint(equalTo: manualBox.leadingAnchor),
@@ -1067,15 +1308,25 @@ final class PopoverController: NSViewController {
             syncLabel.trailingAnchor.constraint(lessThanOrEqualTo: manualBox.trailingAnchor, constant: -i),
             syncLabel.bottomAnchor.constraint(equalTo: manualBox.bottomAnchor, constant: -10),
         ])
+        updateAddCard()
     }
 
     private var showAll: Bool { scope.selectedSegment == 1 }
+    private var showReminders: Bool { scope.selectedSegment == 2 }
+
+    /// Filter Pengingat: kartu tambah todo disembunyikan, filter naik ke atas.
+    private func updateAddCard() {
+        addCard.isHidden = showReminders
+        scopeBelowCard.isActive = !showReminders
+        scopeAtTop.isActive = showReminders
+    }
 
     private func rebuildList() {
         listStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         checkButtons = []
         let b = store.buckets
         updateScopeLabels(b)
+        if showReminders { return rebuildReminders() }
         section("Terlambat", b.overdue, color: Theme.danger)
         section("Hari ini", b.today, showDate: false)
         if showAll { rebuildAll(b) } else { rebuildToday(b) }
@@ -1084,9 +1335,11 @@ final class PopoverController: NSViewController {
     private func updateScopeLabels(_ b: TodoBuckets) {
         scope.setLabel("Hari ini" + (b.badge > 0 ? "  \(b.badge)" : ""), forSegment: 0)
         scope.setLabel("Semua" + (b.total > 0 ? "  \(b.total)" : ""), forSegment: 1)
+        let loose = store.looseReminders.active.count
+        scope.setLabel("Pengingat" + (loose > 0 ? "  \(loose)" : ""), forSegment: 2)
     }
 
-    /// Hari ini: tetap ringkas — terlambat, hari ini, lalu pengingat 48 jam.
+    /// Hari ini: tetap ringkas — terlambat & hari ini. Pengingat lepas ada di filter Pengingat.
     private func rebuildToday(_ b: TodoBuckets) {
         if b.overdue.isEmpty && b.today.isEmpty {
             addListRow(UI.label("Tidak ada todo untuk hari ini. Tambah di atas, atau minta asisten di tab Chat.", size: 12,
@@ -1094,20 +1347,60 @@ final class PopoverController: NSViewController {
             let later = b.upcoming.count + b.noDate.count
             if later > 0 { addListRow(linkButton("Lihat \(later) todo lainnya", #selector(showAllTapped))) }
         }
+    }
 
-        let upcoming = store.occurrences.prefix(3)
-        if !upcoming.isEmpty {
-            addHeader("Pengingat berikutnya", count: nil)
-            for o in upcoming {
-                let when = Clock.parseStamp(o.at).map { Clock.friendly(Clock.ymd($0, store.tz), now: Date(), store.tz) + " " + Clock.hm($0, store.tz) } ?? ""
-                let icon = NSImageView(image: UI.symbol("bell", 12) ?? NSImage())
-                icon.contentTintColor = .secondaryLabelColor
-                let t = UI.label(o.title, size: 13)
-                let w = UI.label(when, size: 11, color: .secondaryLabelColor)
-                addListRow(UI.stack([icon, UI.stack([t, w], spacing: 1)], vertical: false, spacing: 10))
+    /// Waktu ramah untuk stempel RFC3339, mis. "Besok 08:00" / "Kam 5 Nov 08:00".
+    private func friendlyStamp(_ stamp: String) -> String {
+        guard let d = Clock.parseStamp(stamp) else { return "" }
+        let day = Clock.friendly(Clock.ymd(d, store.tz), now: Date(), store.tz)
+        return day.prefix(1).uppercased() + day.dropFirst() + " " + Clock.hm(d, store.tz)
+    }
+
+    /// Pengingat: hanya pengingat tanpa todo (yang terkait todo cukup ikon 🔔 di baris todo-nya).
+    ///   🔔 Minum obat
+    ///      Besok 08:00 · Tiap hari 08:00
+    private func rebuildReminders() {
+        let (active, paused) = store.looseReminders
+        if active.isEmpty && paused.isEmpty {
+            addListRow(UI.text("Belum ada pengingat. Minta asisten di tab Chat, mis. “ingatkan minum obat tiap hari jam 8”.",
+                               width: PopoverController.contentWidth, size: 12, color: .secondaryLabelColor))
+        }
+        if !active.isEmpty {
+            addHeader("Akan berbunyi", count: active.count)
+            for r in active {
+                var sub = friendlyStamp(r.nextFireAt)
+                // "Sekali, …" sama dengan waktu berikutnya → tidak diulang
+                if !r.scheduleText.isEmpty && !r.scheduleText.hasPrefix("Sekali") {
+                    sub += (sub.isEmpty ? "" : " · ") + r.scheduleText
+                }
+                addListRow(reminderRow(r, subtitle: sub, icon: "bell", tint: Theme.accent))
             }
         }
+        if !paused.isEmpty {
+            addHeader("Dijeda", count: paused.count)
+            for r in paused { addListRow(reminderRow(r, subtitle: r.scheduleText, icon: "bell.slash", tint: .tertiaryLabelColor)) }
+        }
+        addListRow(linkButton("Kelola pengingat di browser", #selector(openReminders)))
     }
+
+    private func reminderRow(_ r: Reminder, subtitle: String, icon: String, tint: NSColor) -> NSView {
+        let iv = NSImageView(image: UI.symbol(icon, 13) ?? NSImage())
+        iv.contentTintColor = tint
+        iv.widthAnchor.constraint(equalToConstant: 16).isActive = true
+        var texts: [NSView] = [UI.text(r.title, width: PopoverController.contentWidth - 30, size: 13)]
+        if !subtitle.isEmpty { texts.append(UI.label(subtitle, size: 11, color: .secondaryLabelColor)) }
+        let row = UI.stack([iv, UI.stack(texts, spacing: 1)], vertical: false, spacing: 8)
+        row.alignment = .top
+        row.toolTip = r.message.isEmpty ? nil : r.message
+        let m = NSMenu()
+        let item = NSMenuItem(title: "Ubah di browser…", action: #selector(openReminders), keyEquivalent: "")
+        item.target = self
+        m.addItem(item)
+        row.menu = m
+        return row
+    }
+
+    @objc private func openReminders() { app.openWebPage("/pengingat") }
 
     /// Semua: semua todo terbuka — terlambat, hari ini, per tanggal (Besok, Rab 5 Nov, …), lalu tanpa tenggat.
     private func rebuildAll(_ b: TodoBuckets) {
@@ -1178,7 +1471,22 @@ final class PopoverController: NSViewController {
         }
         if !t.list.isEmpty { meta.append(t.list) }
         var texts: [NSView] = [UI.text(t.title, width: PopoverController.contentWidth - 30, size: 13)]
-        if !meta.isEmpty { texts.append(UI.label(meta.joined(separator: " · "), size: 11, color: .secondaryLabelColor)) }
+        var metaViews: [NSView] = []
+        if !meta.isEmpty { metaViews.append(UI.label(meta.joined(separator: " · ") + (store.reminder(forTodo: t.id) == nil ? "" : " ·"),
+                                                     size: 11, color: .secondaryLabelColor)) }
+        // Todo yang punya pengingat: cukup ikon 🔔 + waktu berbunyi berikutnya (tidak didaftar terpisah)
+        if let r = store.reminder(forTodo: t.id) {
+            let bell = NSImageView(image: UI.symbol("bell.fill", 9) ?? NSImage())
+            bell.contentTintColor = Theme.accent
+            let when = UI.label(friendlyStamp(r.nextFireAt), size: 11, color: .secondaryLabelColor)
+            let tip = "Pengingat: " + (r.scheduleText.isEmpty ? when.stringValue : r.scheduleText)
+            let group = UI.stack([bell, when], vertical: false, spacing: 3)
+            group.toolTip = tip
+            group.setAccessibilityElement(true)
+            group.setAccessibilityLabel(tip)
+            metaViews.append(group)
+        }
+        if !metaViews.isEmpty { texts.append(UI.stack(metaViews, vertical: false, spacing: 4)) }
         let textStack = UI.stack(texts, spacing: 1)
         let dbl = TodoClick(target: self, action: #selector(rowDoubleClicked(_:)))
         dbl.numberOfClicksRequired = 2
@@ -1262,7 +1570,8 @@ final class PopoverController: NSViewController {
 
     @objc private func scopeChanged() {
         editor = nil // ganti filter = batal ubah
-        LocalPrefs.showAllTodos = showAll
+        LocalPrefs.manualScope = scope.selectedSegment
+        updateAddCard()
         rebuildList()
         listScroll.contentView.scroll(to: .zero)
         listScroll.reflectScrolledClipView(listScroll.contentView)
@@ -1368,6 +1677,8 @@ final class PopoverController: NSViewController {
         if mode == .chat {
             view.window?.makeFirstResponder(input)
             loadHistory()
+        } else if showReminders {
+            view.window?.makeFirstResponder(nil) // kartu tambah todo tersembunyi di filter Pengingat
         } else {
             view.window?.makeFirstResponder(editor?.titleField ?? titleField)
         }
@@ -1654,6 +1965,7 @@ extension PopoverController: NSTextFieldDelegate {
     func controlTextDidChange(_ obj: Notification) {
         guard (obj.object as? NSTextField) === input else { return }
         resizeInput()
+        updateSuggestions()
     }
 }
 
@@ -2512,6 +2824,7 @@ final class SettingsWindow: NSObject {
     private lazy var hotkeySwitch = Form.toggle(self, #selector(hotkeyChanged(_:)))
     private lazy var notifySwitch = Form.toggle(self, #selector(notifyChanged(_:)))
     private lazy var loginSwitch = Form.toggle(self, #selector(loginChanged(_:)))
+    private lazy var suggestSwitch = Form.toggle(self, #selector(suggestChanged(_:)))
 
     init(app: AppDelegate) {
         self.app = app
@@ -2562,6 +2875,7 @@ final class SettingsWindow: NSObject {
             Form.section("Menu bar", [
                 Form.row("Tampilkan jumlah todo", "Angka todo hari ini + terlambat di samping ikon ✓.", badgeSwitch),
                 Form.row("Pintasan ⌥⌘T", "Buka / tutup asisten dari aplikasi mana pun.", hotkeySwitch),
+                Form.row("Contoh pertanyaan", "Tombol cepat di atas kotak chat, mis. “Apa saja todo hari ini?”.", suggestSwitch),
             ]),
             Form.section("Notifikasi", [
                 Form.row("Notifikasi di Mac ini", "Pengingat & tenggat dari server dijadwalkan di Mac, jadi tetap muncul walau sedang offline. " +
@@ -2579,6 +2893,7 @@ final class SettingsWindow: NSObject {
         badgeSwitch.state = LocalPrefs.showBadge ? .on : .off
         hotkeySwitch.state = LocalPrefs.hotkey ? .on : .off
         notifySwitch.state = LocalPrefs.notifications ? .on : .off
+        suggestSwitch.state = LocalPrefs.showSuggestions ? .on : .off
         loginSwitch.state = SMAppService.mainApp.status == .enabled ? .on : .off
 
         // Akun & Tentang dibangun ulang hanya kalau isinya berubah
@@ -2647,6 +2962,7 @@ final class SettingsWindow: NSObject {
 
     @objc func badgeChanged(_ s: NSSwitch) { if (s.state == .on) != LocalPrefs.showBadge { app.toggleBadge() } }
     @objc func hotkeyChanged(_ s: NSSwitch) { if (s.state == .on) != LocalPrefs.hotkey { app.toggleHotkey() } }
+    @objc func suggestChanged(_ s: NSSwitch) { if (s.state == .on) != LocalPrefs.showSuggestions { app.toggleSuggestions() } }
     @objc func notifyChanged(_ s: NSSwitch) { if (s.state == .on) != LocalPrefs.notifications { app.toggleNotifications() } }
     @objc func loginChanged(_ s: NSSwitch) {
         app.toggleLogin()
@@ -3191,6 +3507,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             notifier.clearAll()
         }
         settings.reload()
+    }
+
+    /// Contoh pertanyaan di atas input chat: klik kanan chip → sembunyikan, atau Pengaturan → Umum.
+    @objc func toggleSuggestions() {
+        LocalPrefs.showSuggestions.toggle()
+        stateChanged()
     }
 
     @objc func toggleHotkey() {
