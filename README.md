@@ -12,6 +12,8 @@ konteksmu antar percakapan (konsep ingatan dari Hermes Agent).
 
 Rancangan lengkap: [`docs/PRD.md`](docs/PRD.md). Tahapan kerja: [`_todo/00-tracker.md`](_todo/00-tracker.md).
 
+![AI Todo: PWA di browser dan aplikasi menu bar Mac](docs/screenshots/overview.webp)
+
 ## Fitur
 
 | Menu | Isi |
@@ -22,6 +24,16 @@ Rancangan lengkap: [`docs/PRD.md`](docs/PRD.md). Tahapan kerja: [`_todo/00-track
 | **Ingatan AI** | profil & catatan yang selalu dibawa asisten; lihat/ubah/hapus, ekspor `.md` |
 | **Pengaturan** | notifikasi perangkat ini, ringkasan pagi & dorongan terlambat, profil & zona waktu, password, perangkat & token aplikasi Mac |
 | **Admin** (akun admin terpisah, `/admin`) | akun admin, ringkasan, pengguna, **katalog Model AI** (tes, aktif/nonaktif, urutan fallback, tambah manual / dari daftar API provider), persona & batas asisten, **AI Call Log** (request keluar ke provider AI) & **System Log** (error server) |
+
+## Tangkapan layar
+
+| Asisten (chat) | Di HP: asisten, todo, pengingat |
+|---|---|
+| ![Chat asisten dengan kartu aksi dan tombol Batalkan](docs/screenshots/web-chat.webp) | ![PWA di HP](docs/screenshots/web-phone.webp) |
+
+Semua tangkapan layar (termasuk mode gelap, Pengingat, Ingatan AI) ada di [`docs/screenshots/`](docs/screenshots/).
+Gambar aplikasi Mac (`mac-*.webp`, juga sisi kanan gambar di atas) adalah **ilustrasi** berdasarkan tata letak
+AppKit di `main.swift`, bukan tangkapan layar asli — ganti dengan yang asli kalau sudah ada.
 
 ## Aplikasi menu bar Mac
 
@@ -115,6 +127,7 @@ Resources/Info.plist versi aplikasi Mac (= VERSION)
 Tests/ClientCheck/   uji klien Swift terhadap server asli
 scripts/             build.sh, test-client.sh, sign-release.swift, deploy.sh, rollback.sh
 docs/PRD.md          rancangan produk
+docs/screenshots/    tangkapan layar PWA + ilustrasi aplikasi Mac
 _todo/               tracker tahapan
 Dockerfile, docker-compose.yml, .env.example, Makefile
 ```
