@@ -32,7 +32,6 @@ type Op struct {
 	TodoRef    int                `json:"todoRef,omitempty"` // 1-based indeks aksi todo.create di pesan yang sama
 	Title      *string            `json:"title,omitempty"`
 	Notes      *string            `json:"notes,omitempty"`
-	AddNotes   *string            `json:"addNotes,omitempty"` // todo.update: tambah ke detail, tidak menimpa
 	List       *string            `json:"list,omitempty"`
 	Priority   *string            `json:"priority,omitempty"`
 	DueDate    *string            `json:"dueDate,omitempty"`
@@ -170,11 +169,7 @@ func toOps(raw []map[string]any) ([]Op, error) {
 			return nil, fmt.Errorf("aksi ke-%d: op %q tidak dikenal", i, op.Op)
 		}
 		op.Title = m.str("title")
-		op.Notes = m.str("notes", "note", "detail", "details")
-		op.AddNotes = m.str("addNotes", "appendNotes", "addDetail", "add_notes")
-		if op.Op == "todo.create" && op.Notes == nil && op.AddNotes != nil {
-			op.Notes, op.AddNotes = op.AddNotes, nil // todo baru: "tambah detail" = detail awal
-		}
+		op.Notes = m.str("notes", "note")
 		op.List = m.str("list")
 		op.Priority = m.str("priority")
 		op.DueDate = m.str("dueDate", "due_date")
@@ -282,8 +277,7 @@ type Item struct {
 }
 
 func todoInput(o Op) core.TodoInput {
-	return core.TodoInput{Title: o.Title, Notes: o.Notes, AppendNotes: o.AddNotes, List: o.List, Priority: o.Priority,
-		DueDate: o.DueDate, DueTime: o.DueTime}
+	return core.TodoInput{Title: o.Title, Notes: o.Notes, List: o.List, Priority: o.Priority, DueDate: o.DueDate, DueTime: o.DueTime}
 }
 
 // execute menjalankan aksi non-list secara berurutan di c.Q (sebuah transaksi).
@@ -311,10 +305,6 @@ func execute(c *core.Ctx, ops []Op) ([]Item, error) {
 				return nil, notFound(err, "todo", o.TodoID)
 			}
 			summary = "Diubah: " + todoLabel(c, t)
-			if o.AddNotes != nil && o.Title == nil && o.Notes == nil && o.DueDate == nil && o.DueTime == nil &&
-				o.List == nil && o.Priority == nil {
-				summary = "Detail ditambahkan: " + t.Title
-			}
 		case "todo.complete":
 			t, err := core.CompleteTodo(c, o.TodoID)
 			if err != nil {
@@ -451,9 +441,6 @@ func preview(c *core.Ctx, ops []Op) ([]Item, error) {
 		case "todo.update":
 			title, err = todoTitle()
 			s = "Ubah todo: " + title
-			if o.AddNotes != nil {
-				s += " (tambah detail)"
-			}
 		case "todo.complete":
 			title, err = todoTitle()
 			s = "Tandai selesai: " + title

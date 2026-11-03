@@ -44,9 +44,7 @@ Semua tampilan (aplikasi Mac & web) mengikuti gaya desain Apple (Human Interface
   `presentsCalendarOverlay`, jam `.hourMinute`). Pengecualian yang disengaja: kartu tambah cepat di tab
   Manual Mac (dropdown Hari ini/Besok/Lusa + kolom jam) — jangan diubah tanpa izin pemilik.
 - Aksi alternatif mengikuti pola macOS: tahan ⌥ untuk menampilkan aksi kedua (mis. ○ selesai → ✎
-  ubah, menu Salin → Salin judul saja), selalu dengan jalan lain yang mudah ditemukan (klik dua kali, klik kanan).
-- Salin todo = teks polos "Judul" + baris kosong + detail (`TodoCopy` di Mac, `web/src/copy.js`), selalu dengan
-  umpan balik singkat ("Judul & detail disalin").
+  ubah), selalu dengan jalan lain yang mudah ditemukan (klik dua kali, klik kanan).
 - **HP (web ≤760px / layar sentuh)**: menu di atas (segmented control), judul besar, tombol utama =
   ikon bulat, area ketuk ≥40px, input ≥16px (Safari tidak zoom). Aksi baris lewat **gestur geser**
   (`components/SwipeRow.vue`: kanan = aksi utama, kiri = ubah/hapus, geser penuh = langsung) — tombol

@@ -31,8 +31,6 @@ const paths = {
   refresh: 'M20 12a8 8 0 11-3-6.2M20 4v5h-5',
   list: 'M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01',
   alert: 'M12 3l10 18H2zM12 10v5M12 18h.01',
-  note: 'M5 6h14M5 10h14M5 14h10M5 18h7',
-  copy: 'M9 9h11v11H9zM5 15H4V4h11v1',
 }
 </script>
 
