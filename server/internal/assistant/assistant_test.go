@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -239,3 +240,48 @@ func TestParsePlan(t *testing.T) {
 
 func ptr(s string) *string { return &s }
 func itoa(n int64) string  { b, _ := json.Marshal(n); return string(b) }
+
+// "tambahkan detail ke todo X" → addNotes menambah di bawah detail lama (tidak menimpa); todo baru boleh langsung
+// membawa detail; isi detail tidak dikirim ke AI bila admin mematikannya, cukup tanda hasNotes.
+func TestTodoDetailAppend(t *testing.T) {
+	f := &fakeAI{replies: []string{
+		`{"reply":"Oke","actions":[{"op":"todo.create","title":"Riset laptop","detail":"- https://contoh.id/a"}]}`,
+		"", // diisi setelah id todo diketahui
+	}}
+	a, u := setup(t, f)
+	if _, err := a.Handle(context.Background(), u, jkt, "catat riset laptop, linknya https://contoh.id/a"); err != nil {
+		t.Fatal(err)
+	}
+	todos, _ := db.ListTodos(a.DB, u.ID, db.TodoFilter{})
+	if len(todos) != 1 || todos[0].Notes != "- https://contoh.id/a" || todos[0].Title != "Riset laptop" {
+		t.Fatalf("todo %+v", todos)
+	}
+	id := todos[0].ID
+	f.replies[0] = `{"reply":"Sip","actions":[{"op":"todo.update","todoId":` + strconv.FormatInt(id, 10) +
+		`,"addNotes":"- bandingkan harga\n- https://contoh.id/b"}]}`
+	rep, err := a.Handle(context.Background(), u, jkt, "tambahkan detail ke riset laptop: bandingkan harga, https://contoh.id/b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := db.GetTodo(a.DB, u.ID, id)
+	want := "- https://contoh.id/a\n- bandingkan harga\n- https://contoh.id/b"
+	if got.Notes != want {
+		t.Fatalf("notes %q, mau %q", got.Notes, want)
+	}
+	if rep.Batch == nil || len(rep.Batch.Items) != 1 || !strings.HasPrefix(rep.Batch.Items[0].Summary, "Detail ditambahkan") {
+		t.Fatalf("batch %+v", rep.Batch)
+	}
+	// Bawaan: isi detail tidak dikirim, hanya hasNotes.
+	sys := f.requests[1]["messages"].([]any)[0].(map[string]any)["content"].(string)
+	if !strings.Contains(sys, `"hasNotes":true`) || strings.Contains(sys, "contoh.id/a") {
+		t.Fatalf("konteks detail salah")
+	}
+	// Undo mengembalikan detail lama.
+	if _, err := a.Undo(u, rep.Batch.ID); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = db.GetTodo(a.DB, u.ID, id)
+	if got.Notes != "- https://contoh.id/a" {
+		t.Fatalf("undo notes %q", got.Notes)
+	}
+}

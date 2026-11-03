@@ -4,6 +4,7 @@ import { post, put, del } from '../api'
 import { state, toast, errorText, refreshData } from '../store'
 import Modal from './Modal.vue'
 import Icon from './Icon.vue'
+import { copyTodo } from '../copy'
 
 const props = defineProps({ todo: { type: Object, default: null }, presetDate: { type: String, default: '' } })
 const emit = defineEmits(['close', 'saved', 'deleted'])
@@ -95,12 +96,18 @@ async function save() {
           </select>
         </label>
       </div>
-      <label class="field"><span>Catatan</span><textarea v-model="notes" maxlength="2000"></textarea></label>
+      <label class="field"><span>Detail <em class="muted">(opsional)</em></span>
+        <textarea v-model="notes" maxlength="5000" rows="4" placeholder="Link, rincian, atau daftar catatan — satu butir per baris"></textarea>
+      </label>
       <label v-if="dueDate && dueTime" class="check"><input v-model="remind" type="checkbox" /> Buat pengingat di jam tenggat</label>
     </form>
     <template #footer>
       <button v-if="t" class="btn danger push-left" type="button" :disabled="busy" aria-label="Hapus todo" @click="remove">
         <Icon name="trash" :size="16" /><span class="btn-label">Hapus</span>
+      </button>
+      <button v-if="t" class="btn" type="button" :aria-label="notes ? 'Salin judul & detail' : 'Salin judul'"
+        @click="copyTodo({ title, notes })">
+        <Icon name="copy" :size="16" /><span class="btn-label">Salin</span>
       </button>
       <button class="btn" type="button" @click="emit('close')">Batal</button>
       <button class="btn primary" form="todo-form" :disabled="busy">{{ busy ? 'Menyimpan…' : 'Simpan' }}</button>
