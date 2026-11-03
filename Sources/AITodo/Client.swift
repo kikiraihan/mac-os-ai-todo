@@ -42,6 +42,8 @@ struct Todo: Codable, Equatable {
     var list: String
     var dueDate: String
     var dueTime: String
+    /// RFC3339 UTC; hanya terisi untuk todo selesai (urutan daftar Selesai).
+    var completedAt: String? = nil
 }
 
 struct Occurrence: Codable, Equatable {
@@ -62,6 +64,42 @@ struct Reminder: Codable, Equatable {
     let nextFireAt: String
     let active: Bool
     let scheduleText: String
+    var schedule: ReminderSchedule? = nil
+    var lastFiredAt: String? = nil
+
+    /// Nonaktif karena sudah berbunyi & tidak ada jadwal berikutnya (bukan dijeda pengguna).
+    var ended: Bool { !active && schedule?.kind == "once" && !(lastFiredAt ?? "").isEmpty }
+}
+
+/// Jadwal pengingat (sama dengan `schedule.Schedule` di server). Field yang tidak dipakai jenisnya = nil.
+struct ReminderSchedule: Codable, Equatable {
+    var kind: String
+    var at: String? = nil           // once: YYYY-MM-DDTHH:MM (zona pengguna)
+    var time: String? = nil         // daily/weekly/monthly/yearly: HH:MM
+    var every: Int? = nil
+    var weekdays: [Int]? = nil      // 1=Senin … 7=Minggu
+    var monthDay: Int? = nil
+    var month: Int? = nil
+    var everyMinutes: Int? = nil
+    var startDate: String? = nil
+    var until: String? = nil
+    var count: Int? = nil
+
+    /// Bentuk JSON untuk body request (tanpa field kosong).
+    var body: [String: Any] {
+        var b: [String: Any] = ["kind": kind]
+        if let at { b["at"] = at }
+        if let time { b["time"] = time }
+        if let every { b["every"] = every }
+        if let weekdays { b["weekdays"] = weekdays }
+        if let monthDay { b["monthDay"] = monthDay }
+        if let month { b["month"] = month }
+        if let everyMinutes { b["everyMinutes"] = everyMinutes }
+        if let startDate { b["startDate"] = startDate }
+        if let until { b["until"] = until }
+        if let count { b["count"] = count }
+        return b
+    }
 }
 
 struct ChatMessage: Codable {
@@ -264,6 +302,18 @@ final class APIClient {
     struct Reminders: Decodable { let reminders: [Reminder]; let rev: Int64 }
     func reminders(_ c: @escaping (Result<Reminders, APIError>) -> Void) {
         send("GET", "/reminders", as: Reminders.self, completion: c)
+    }
+
+    struct ReminderResult: Decodable { let reminder: Reminder }
+    /// body: title, message, todoId (0 = tanpa todo), schedule (ReminderSchedule.body), active.
+    func createReminder(_ body: [String: Any], _ c: @escaping (Result<ReminderResult, APIError>) -> Void) {
+        send("POST", "/reminders", body: body, as: ReminderResult.self, completion: c)
+    }
+    func updateReminder(_ id: Int64, _ body: [String: Any], _ c: @escaping (Result<ReminderResult, APIError>) -> Void) {
+        send("PUT", "/reminders/\(id)", body: body, as: ReminderResult.self, completion: c)
+    }
+    func deleteReminder(_ id: Int64, _ c: @escaping (Result<Ok, APIError>) -> Void) {
+        send("DELETE", "/reminders/\(id)", as: Ok.self, completion: c)
     }
 
     struct Rev: Decodable { let rev: Int64 }
