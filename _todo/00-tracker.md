@@ -149,6 +149,23 @@ Rancangan: [`../docs/PRD.md`](../docs/PRD.md). Perbarui setiap tugas selesai.
 - [ ] Uji manual carousel di Mac sungguhan (macOS 26 Liquid Glass & versi lama)
 - [ ] Uji manual ikon 🔔 & filter Pengingat di Mac sungguhan
 
+## v0.9.0 — detail todo & salin todo
+
+- [x] **Detail todo** (kolom `notes`, opsional; maks 5000 karakter): link, rincian, daftar catatan.
+      AI: `todo.update` + `addNotes` menambah detail di bawah yang lama tanpa menimpa (`core.TodoInput.AppendNotes`,
+      juga di API), alias `detail`; aturan prompt no. 10; bila admin tidak mengirim isi catatan ke AI, DATA
+      memberi tanda `hasNotes`. Tes `TestTodoDetailAppend` (tambah, ringkasan "Detail ditambahkan", undo)
+- [x] Mac: tanda **≡ Detail** di baris todo → klik = pratinjau (NSPopover: judul, info, detail dengan link bisa
+      diklik & daftar •, tombol Salin / Ubah…); arahkan mouse = tooltip detail. Kolom Detail juga di kartu ubah
+      cepat (↩ = baris baru)
+- [x] Salin todo (judul + baris kosong + detail): Mac klik kanan → Salin, tahan ⌥ → Salin judul saja; ⌘C di
+      pratinjau (tanpa pilihan = semua) & di Pengaturan → Todo (baris terpilih); umpan balik di baris status.
+      Menu Edit tak terlihat (`AppDelegate.editMenu`) supaya ⌘C/⌘V/⌘X/⌘A/⌘Z bekerja di aplikasi menu bar
+- [x] Web: tanda **Detail** di baris (klik = buka/tutup detail di tempat, link bisa diklik — `DetailText.vue` tanpa
+      v-html, tombol Salin), tombol salin di baris (desktop, ⌥-klik = judul saja), Salin di lembar ubah,
+      label "Catatan" → "Detail (opsional)". Dicek Playwright (desktop, iPhone 13, gelap)
+- [ ] Uji manual pratinjau detail, menu Salin (⌥), ⌘C/⌘V di Mac sungguhan
+
 ## Berikutnya
 
 - [x] Deploy otomatis ke VPS (backup, health check, rollback) — `CICD.md`, diuji dengan docker tiruan

@@ -6,6 +6,8 @@ import { today, addDays, friendlyDate } from '../dates'
 import TodoForm from '../components/TodoForm.vue'
 import Icon from '../components/Icon.vue'
 import SwipeRow from '../components/SwipeRow.vue'
+import DetailText from '../components/DetailText.vue'
+import { copyTodo } from '../copy'
 import { touch, showSwipeHint, swipeUsed } from '../swipe'
 
 const tab = ref('today')
@@ -16,6 +18,14 @@ const quickDate = ref('')
 const editing = ref(null)
 const creating = ref(false)
 const busyId = ref(0)
+// Detail yang sedang dibuka (id todo); bawaan tertutup supaya daftar tetap ringkas.
+const openDetail = ref(new Set())
+function toggleDetail(x) {
+  const s = new Set(openDetail.value)
+  if (s.has(x.id)) s.delete(x.id)
+  else s.add(x.id)
+  openDetail.value = s
+}
 
 const t0 = computed(() => today())
 const lists = computed(() => [...new Set(state.todos.map((x) => x.list).filter(Boolean))].sort())
@@ -205,13 +215,22 @@ const emptyText = computed(
             <div class="meta">
               <span v-if="x.dueDate" :class="isLate(x) ? 'late' : 'due'">{{ dueLabel(x) }}</span>
               <span v-if="x.list">{{ x.list }}</span>
+              <button v-if="x.notes" type="button" class="detail-tag" :aria-expanded="openDetail.has(x.id)"
+                :title="openDetail.has(x.id) ? 'Tutup detail' : 'Lihat detail'" @click.stop="toggleDetail(x)">
+                <Icon name="note" :size="14" />Detail
+              </button>
               <span v-if="reminderCount(x)" title="Pengingat">🔔 {{ reminderCount(x) }}</span>
               <span v-if="x.source === 'chat'" title="Dibuat lewat chat">AI</span>
               <span class="id">#{{ x.id }}</span>
             </div>
-            <div v-if="x.notes" class="notes muted small">{{ x.notes }}</div>
+            <div v-if="x.notes && openDetail.has(x.id)" class="detail" @click.stop>
+              <DetailText :text="x.notes" />
+              <button type="button" class="btn sm" @click="copyTodo(x)"><Icon name="copy" :size="14" />Salin</button>
+            </div>
           </div>
           <div class="row-actions">
+            <button class="icon-btn" :aria-label="`Salin ${x.title}`" title="Salin judul & detail · ⌥-klik: judul saja"
+              @click="copyTodo(x, $event.altKey)"><Icon name="copy" :size="18" /></button>
             <button class="icon-btn" :aria-label="`Ubah ${x.title}`" @click="editing = x"><Icon name="edit" :size="18" /></button>
             <button class="icon-btn" :aria-label="`Hapus ${x.title}`" @click="remove(x)"><Icon name="trash" :size="18" /></button>
           </div>
@@ -346,14 +365,51 @@ const emptyText = computed(
   margin-left: auto;
   opacity: 0.7;
 }
-.notes {
-  margin-top: 4px;
-  white-space: pre-wrap;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+.detail-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border: none;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font: inherit;
+  font-weight: 500;
+  border-radius: 999px;
+  padding: 1px 8px 1px 6px;
+  cursor: pointer;
+}
+.detail-tag[aria-expanded='true'] {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+.detail {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  font-size: 0.9rem;
+  cursor: text;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.detail .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+@media (pointer: coarse) {
+  /* area ketuk ≥40px untuk tombol Detail di HP */
+  .detail-tag {
+    position: relative;
+    padding: 2px 10px 2px 8px;
+  }
+  .detail-tag::after {
+    content: '';
+    position: absolute;
+    inset: -10px -4px;
+  }
 }
 .row-actions {
   display: flex;
