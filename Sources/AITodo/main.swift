@@ -681,6 +681,159 @@ final class SuggestionBar: NSView {
     }
 }
 
+// MARK: Detail todo: salin & pratinjau
+
+/// Salin isi todo sebagai teks polos: "Judul" + baris kosong + detail (bila ada).
+enum TodoCopy {
+    static func text(_ t: Todo, titleOnly: Bool = false) -> String {
+        titleOnly || t.notes.isEmpty ? t.title : t.title + "\n\n" + t.notes
+    }
+
+    static func copy(_ todos: [Todo], titleOnly: Bool = false) {
+        guard !todos.isEmpty else { return }
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(todos.map { text($0, titleOnly: titleOnly) }.joined(separator: titleOnly ? "\n" : "\n\n"), forType: .string)
+    }
+}
+
+/// Teks detail di pratinjau: ⌘C tanpa pilihan = salin seluruh todo; dengan pilihan = salin yang dipilih.
+final class DetailTextView: NSTextView {
+    var copyAll: (() -> Void)?
+    override func copy(_ sender: Any?) {
+        if selectedRange().length == 0 { copyAll?() } else { super.copy(sender) }
+    }
+}
+
+/// Pratinjau detail todo (NSPopover, gaya Quick Look ringkas):
+///   ┌ Riset laptop                 ┐  ← judul (bisa dipilih)
+///   │ Besok 09:00 · Kantor          │
+///   │ ───────────────────────────── │
+///   │ •  https://contoh.id/a        │  ← detail: link bisa diklik, daftar "- " tampil sebagai •
+///   │ •  bandingkan harga           │     (yang disalin tetap teks asli)
+///   └               [Salin] [Ubah…] ┘  ← ⌘C = salin semua (atau bagian yang dipilih)
+final class DetailPreview: NSViewController {
+    static let width: CGFloat = 300
+    static let maxDetailHeight: CGFloat = 280
+    let todo: Todo
+    let tz: TimeZone
+    var onEdit: (() -> Void)?
+    var onCopied: (() -> Void)?
+    private lazy var copyButton = NSButton(title: "Salin", target: self, action: #selector(copyAll))
+    private let textView = DetailTextView()
+
+    init(todo: Todo, tz: TimeZone) {
+        self.todo = todo
+        self.tz = tz
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) { fatalError("tidak dipakai") }
+
+    /// Detail siap tampil: daftar "- x" / "* x" jadi "•  x", link (http/https/www) bisa diklik.
+    static func detailString(_ notes: String) -> NSAttributedString {
+        let shown = notes.split(separator: "\n", omittingEmptySubsequences: false).map { line -> String in
+            let t = line.drop { $0 == " " }
+            return t.hasPrefix("- ") || t.hasPrefix("* ") ? "•  " + t.dropFirst(2) : String(line)
+        }.joined(separator: "\n")
+        let p = NSMutableParagraphStyle()
+        p.lineSpacing = 3
+        p.paragraphSpacing = 3
+        let s = NSMutableAttributedString(string: shown, attributes: [.font: NSFont.systemFont(ofSize: 13),
+                                                                      .foregroundColor: NSColor.labelColor, .paragraphStyle: p])
+        if let det = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) {
+            for m in det.matches(in: shown, range: NSRange(location: 0, length: (shown as NSString).length)) {
+                if let url = m.url, ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
+                    s.addAttribute(.link, value: url, range: m.range)
+                }
+            }
+        }
+        return s
+    }
+
+    override func loadView() {
+        let w = DetailPreview.width - 32
+        let title = NSTextField(wrappingLabelWithString: todo.title)
+        title.font = .systemFont(ofSize: 14, weight: .semibold)
+        title.isSelectable = true
+        title.preferredMaxLayoutWidth = w
+        var rows: [NSView] = [title]
+
+        var meta: [String] = []
+        if !todo.dueDate.isEmpty {
+            let name = Clock.friendly(todo.dueDate, now: Date(), tz)
+            meta.append(name.prefix(1).uppercased() + name.dropFirst() + (todo.dueTime.isEmpty ? "" : " \(todo.dueTime)"))
+        }
+        if !todo.list.isEmpty { meta.append(todo.list) }
+        if todo.priority == "high" { meta.append("Prioritas tinggi") }
+        if !meta.isEmpty { rows.append(UI.label(meta.joined(separator: " · "), size: 11, color: .secondaryLabelColor)) }
+        let line = NSBox()
+        line.boxType = .separator
+        rows.append(line)
+
+        // Detail: NSTextView non-edit (link bisa diklik, teks bisa dipilih); menggulir bila panjang
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.drawsBackground = false
+        textView.textContainerInset = .zero
+        textView.textContainer?.lineFragmentPadding = 0
+        textView.textContainer?.containerSize = NSSize(width: w, height: .greatestFiniteMagnitude)
+        textView.textContainer?.widthTracksTextView = true
+        textView.isVerticallyResizable = true
+        textView.linkTextAttributes = [.foregroundColor: Theme.accent, .underlineStyle: NSUnderlineStyle.single.rawValue,
+                                       .cursor: NSCursor.pointingHand]
+        textView.textStorage?.setAttributedString(DetailPreview.detailString(todo.notes))
+        textView.setAccessibilityLabel("Detail")
+        textView.copyAll = { [weak self] in self?.copyAll() }
+        textView.frame = NSRect(x: 0, y: 0, width: w, height: 10)
+        var h: CGFloat = 16
+        if let lm = textView.layoutManager, let tc = textView.textContainer {
+            lm.ensureLayout(for: tc)
+            h = ceil(lm.usedRect(for: tc).height) + 2
+        }
+        textView.frame = NSRect(x: 0, y: 0, width: w, height: h)
+        let scroll = NSScrollView()
+        scroll.drawsBackground = false
+        scroll.hasVerticalScroller = h > DetailPreview.maxDetailHeight
+        scroll.autohidesScrollers = true
+        scroll.scrollerStyle = .overlay
+        scroll.documentView = textView
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        scroll.heightAnchor.constraint(equalToConstant: min(h, DetailPreview.maxDetailHeight)).isActive = true
+        rows.append(scroll)
+
+        copyButton.bezelStyle = .rounded
+        copyButton.controlSize = .small
+        copyButton.toolTip = "Salin judul & detail (⌘C)"
+        let edit = NSButton(title: "Ubah…", target: self, action: #selector(editTapped))
+        edit.bezelStyle = .rounded
+        edit.controlSize = .small
+        let buttons = UI.stack([NSView(), copyButton, edit], vertical: false, spacing: 8)
+        rows.append(buttons)
+
+        let stack = UI.stack(rows, spacing: 8)
+        for v in rows where v !== title { v.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true }
+        let root = NSView()
+        UI.pin(stack, to: root, top: 14, left: 16, bottom: 12, right: 16)
+        root.widthAnchor.constraint(equalToConstant: DetailPreview.width).isActive = true
+        view = root
+    }
+
+    override func viewDidAppear() {
+        super.viewDidAppear()
+        view.window?.makeFirstResponder(textView) // ⌘C langsung bekerja
+    }
+
+    @objc func copyAll() {
+        TodoCopy.copy([todo])
+        copyButton.title = "Disalin"
+        onCopied?()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in self?.copyButton.title = "Salin" }
+    }
+
+    @objc private func editTapped() { onEdit?() }
+}
+
 enum UI {
     static func label(_ s: String, size: CGFloat = 13, weight: NSFont.Weight = .regular, color: NSColor = .labelColor) -> NSTextField {
         let l = NSTextField(labelWithString: s)
@@ -884,6 +1037,10 @@ final class PopoverController: NSViewController {
     private let listStack = UI.stack([], spacing: 6)
     private lazy var listScroll = UI.scroll(listStack)
     private let syncLabel = UI.label("", size: 11, color: .tertiaryLabelColor)
+    /// Pratinjau detail yang sedang terbuka (dipegang supaya tidak lepas saat tampil).
+    private var detailPopover: NSPopover?
+    /// Baris todo yang tampil (id → baris), jangkar pratinjau dari menu klik kanan.
+    private var rowViews: [Int64: NSView] = [:]
 
     init(app: AppDelegate) {
         self.app = app
@@ -1324,6 +1481,7 @@ final class PopoverController: NSViewController {
     private func rebuildList() {
         listStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         checkButtons = []
+        rowViews = [:]
         let b = store.buckets
         updateScopeLabels(b)
         if showReminders { return rebuildReminders() }
@@ -1472,9 +1630,25 @@ final class PopoverController: NSViewController {
         if !t.list.isEmpty { meta.append(t.list) }
         var texts: [NSView] = [UI.text(t.title, width: PopoverController.contentWidth - 30, size: 13)]
         var metaViews: [NSView] = []
-        if !meta.isEmpty { metaViews.append(UI.label(meta.joined(separator: " · ") + (store.reminder(forTodo: t.id) == nil ? "" : " ·"),
+        let moreMeta = !t.notes.isEmpty || store.reminder(forTodo: t.id) != nil
+        if !meta.isEmpty { metaViews.append(UI.label(meta.joined(separator: " · ") + (moreMeta ? " ·" : ""),
                                                      size: 11, color: .secondaryLabelColor)) }
         // Todo yang punya pengingat: cukup ikon 🔔 + waktu berbunyi berikutnya (tidak didaftar terpisah)
+        // Todo yang punya detail: ikon ≡ "Detail" — klik = pratinjau (judul + detail, Salin, Ubah…)
+        if !t.notes.isEmpty {
+            let b = NSButton(title: "Detail", image: UI.symbol("text.alignleft", 10) ?? NSImage(), target: self,
+                             action: #selector(detailClicked(_:)))
+            b.isBordered = false
+            b.imagePosition = .imageLeading
+            b.imageHugsTitle = true
+            b.contentTintColor = Theme.accent
+            b.attributedTitle = NSAttributedString(string: "Detail", attributes: [.font: NSFont.systemFont(ofSize: 11),
+                                                                                .foregroundColor: Theme.accent])
+            b.tag = Int(t.id)
+            b.toolTip = "Lihat detail"
+            b.setAccessibilityLabel("Lihat detail “\(t.title)”")
+            metaViews.append(b)
+        }
         if let r = store.reminder(forTodo: t.id) {
             let bell = NSImageView(image: UI.symbol("bell.fill", 9) ?? NSImage())
             bell.contentTintColor = Theme.accent
@@ -1494,21 +1668,81 @@ final class PopoverController: NSViewController {
         textStack.addGestureRecognizer(dbl)
         let row = UI.stack([check, textStack], vertical: false, spacing: 8)
         row.alignment = .top
-        row.toolTip = t.notes.isEmpty ? nil : t.notes
+        row.toolTip = t.notes.isEmpty ? nil : t.notes // arahkan mouse = intip detail
         row.menu = rowMenu(t)
+        rowViews[t.id] = row
         return row
     }
 
-    /// Klik kanan baris: Ubah… / Tandai selesai.
+    /// Klik kanan baris: Lihat detail / Ubah… / Salin (tahan ⌥: Salin judul saja) / Tandai selesai.
     private func rowMenu(_ t: Todo) -> NSMenu {
         let m = NSMenu()
-        for (title, action) in [("Ubah…", #selector(editMenuItem(_:))), ("Tandai selesai", #selector(completeMenuItem(_:)))] {
+        func add(_ title: String, _ action: Selector, alternate: Bool = false) {
             let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
             item.target = self
             item.representedObject = NSNumber(value: t.id)
+            if alternate {
+                item.isAlternate = true
+                item.keyEquivalentModifierMask = .option
+            }
             m.addItem(item)
         }
+        if !t.notes.isEmpty { add("Lihat detail", #selector(detailMenuItem(_:))) }
+        add("Ubah…", #selector(editMenuItem(_:)))
+        add("Salin", #selector(copyMenuItem(_:)))
+        if !t.notes.isEmpty { add("Salin judul saja", #selector(copyTitleMenuItem(_:)), alternate: true) }
+        m.addItem(.separator())
+        add("Tandai selesai", #selector(completeMenuItem(_:)))
         return m
+    }
+
+    // MARK: Detail & salin
+
+    private func todo(_ item: NSMenuItem) -> Todo? {
+        guard let id = (item.representedObject as? NSNumber)?.int64Value else { return nil }
+        return store.todos.first { $0.id == id }
+    }
+
+    @objc private func detailClicked(_ sender: NSButton) {
+        guard let t = store.todos.first(where: { $0.id == Int64(sender.tag) }) else { return }
+        showDetail(t, from: sender)
+    }
+
+    @objc private func detailMenuItem(_ item: NSMenuItem) {
+        guard let t = todo(item), let v = rowViews[t.id] else { return }
+        showDetail(t, from: v)
+    }
+
+    @objc private func copyMenuItem(_ item: NSMenuItem) { todo(item).map { copyTodo($0, titleOnly: false) } }
+    @objc private func copyTitleMenuItem(_ item: NSMenuItem) { todo(item).map { copyTodo($0, titleOnly: true) } }
+
+    private func copyTodo(_ t: Todo, titleOnly: Bool) {
+        TodoCopy.copy([t], titleOnly: titleOnly)
+        flashStatus(titleOnly || t.notes.isEmpty ? "Judul disalin" : "Judul & detail disalin")
+    }
+
+    /// Umpan balik singkat di baris status bawah, lalu kembali ke status sinkron.
+    private func flashStatus(_ text: String) {
+        syncLabel.stringValue = text
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { [weak self] in
+            guard let self, self.syncLabel.stringValue == text else { return }
+            self.syncLabel.stringValue = self.app.syncStatus
+        }
+    }
+
+    private func showDetail(_ t: Todo, from anchor: NSView) {
+        detailPopover?.close()
+        let vc = DetailPreview(todo: t, tz: store.tz)
+        let p = NSPopover()
+        p.behavior = .transient
+        p.contentViewController = vc
+        vc.onEdit = { [weak self, weak p] in
+            p?.close()
+            self?.beginEdit(t.id)
+        }
+        vc.onCopied = { [weak self] in self?.flashStatus("Judul & detail disalin") }
+        detailPopover = p
+        p.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)
     }
 
     private func styleCheck(_ b: NSButton, _ t: Todo) {
@@ -1849,18 +2083,23 @@ final class TodoEditor: NSView, NSTextFieldDelegate, NSComboBoxDelegate {
         let when = UI.stack([dateCheck, datePicker, NSView(), timeCheck, timePicker], vertical: false, spacing: 6)
         var buttonViews: [NSView] = [error, NSView(), cancelButton, saveButton]
         var rows: [NSView] = [titleField, meta, when]
+        // Detail (opsional): link, rincian, daftar catatan — ↩ = baris baru. Ada di kartu ubah & lembar penuh.
+        notesField.stringValue = todo.notes
+        notesField.placeholderString = "Detail (opsional): link, rincian, daftar…"
+        notesField.bezelStyle = .roundedBezel
+        notesField.usesSingleLineMode = false
+        notesField.cell?.wraps = true
+        notesField.cell?.isScrollable = false
+        notesField.lineBreakMode = .byWordWrapping
+        notesField.delegate = self
+        notesField.setAccessibilityLabel("Detail")
+        notesField.heightAnchor.constraint(equalToConstant: full ? 96 : 52).isActive = true
+        if !full {
+            notesField.controlSize = .small
+            notesField.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        }
+        rows.insert(notesField, at: 1)
         if full {
-            notesField.stringValue = todo.notes
-            notesField.placeholderString = "Catatan (opsional)"
-            notesField.bezelStyle = .roundedBezel
-            notesField.usesSingleLineMode = false
-            notesField.cell?.wraps = true
-            notesField.cell?.isScrollable = false
-            notesField.lineBreakMode = .byWordWrapping
-            notesField.delegate = self
-            notesField.setAccessibilityLabel("Catatan")
-            notesField.heightAnchor.constraint(equalToConstant: 64).isActive = true
-            rows.insert(notesField, at: 1)
             let head = UI.label(todo.id == 0 ? "Todo baru" : "Ubah todo", size: 15, weight: .semibold)
             rows.insert(head, at: 0)
             if todo.id != 0 {
@@ -1924,7 +2163,7 @@ final class TodoEditor: NSView, NSTextFieldDelegate, NSComboBoxDelegate {
             "dueDate": hasDate ? Clock.ymd(datePicker.dateValue, tz) : "",
             "dueTime": hasTime ? Clock.hm(timePicker.dateValue, tz) : "",
         ]
-        if full { fields["notes"] = notesField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines) }
+        fields["notes"] = notesField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         onSave?(fields)
     }
 
@@ -1940,7 +2179,7 @@ final class TodoEditor: NSView, NSTextFieldDelegate, NSComboBoxDelegate {
             save()
             return true
         }
-        // Catatan: ↩ = baris baru (bukan simpan)
+        // Detail: ↩ = baris baru (bukan simpan)
         if control === notesField, selector == #selector(NSResponder.insertNewline(_:)) {
             textView.insertNewlineIgnoringFieldEditor(nil)
             return true
@@ -2114,6 +2353,7 @@ final class TodoPage: NSViewController, NSTableViewDataSource, NSTableViewDelega
     private let search = NSSearchField()
     private let listPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let table = TodoTable()
+    private var detailPopover: NSPopover?
     private lazy var tableScroll = NSScrollView()
     private let empty = UI.label("", size: 13, color: .secondaryLabelColor)
     private let footer = UI.label("", size: 11, color: .secondaryLabelColor)
@@ -2313,10 +2553,16 @@ final class TodoPage: NSViewController, NSTableViewDataSource, NSTableViewDelega
 
     private func todo(at row: Int) -> Todo? { row >= 0 && row < rows.count ? rows[row] : nil }
 
-    /// ↩ = ubah, spasi = selesai / buka lagi, ⌫ = hapus.
+    /// ↩ = ubah, spasi = selesai / buka lagi, ⌫ = hapus, ⌘C = salin (judul & detail; semua baris terpilih).
     private func handleKey(_ key: TodoTable.Key) -> Bool {
+        if key == .copy {
+            let picked = table.selectedRowIndexes.compactMap { todo(at: $0) }
+            TodoCopy.copy(picked)
+            return !picked.isEmpty
+        }
         guard let t = todo(at: table.selectedRow) else { return false }
         switch key {
+        case .copy: break
         case .enter: edit(t)
         case .space: toggle(t)
         case .delete: delete(t)
@@ -2333,7 +2579,14 @@ final class TodoPage: NSViewController, NSTableViewDataSource, NSTableViewDelega
             i.representedObject = NSNumber(value: t.id)
             menu.addItem(i)
         }
+        if !t.notes.isEmpty { item("Lihat detail", #selector(detailMenu(_:))) }
         item("Ubah…", #selector(editMenu(_:)))
+        item("Salin", #selector(copyMenu(_:)))
+        if !t.notes.isEmpty {
+            item("Salin judul saja", #selector(copyTitleMenu(_:)))
+            menu.items.last?.isAlternate = true // tahan ⌥ di menu
+            menu.items.last?.keyEquivalentModifierMask = .option
+        }
         item(t.status == "done" ? "Buka lagi" : "Tandai selesai", #selector(toggleMenu(_:)))
         menu.addItem(.separator())
         item("Hapus…", #selector(deleteMenu(_:)))
@@ -2345,6 +2598,23 @@ final class TodoPage: NSViewController, NSTableViewDataSource, NSTableViewDelega
     }
 
     @objc private func editMenu(_ s: NSMenuItem) { find(s).map(edit) }
+    @objc private func copyMenu(_ s: NSMenuItem) { find(s).map { TodoCopy.copy([$0]) } }
+    @objc private func copyTitleMenu(_ s: NSMenuItem) { find(s).map { TodoCopy.copy([$0], titleOnly: true) } }
+    @objc private func detailMenu(_ s: NSMenuItem) {
+        guard let t = find(s), let row = rows.firstIndex(where: { $0.id == t.id }),
+              let cell = table.view(atColumn: 0, row: row, makeIfNecessary: false) else { return }
+        detailPopover?.close()
+        let vc = DetailPreview(todo: t, tz: store.tz)
+        let p = NSPopover()
+        p.behavior = .transient
+        p.contentViewController = vc
+        vc.onEdit = { [weak self, weak p] in
+            p?.close()
+            self?.edit(t)
+        }
+        detailPopover = p
+        p.show(relativeTo: cell.bounds, of: cell, preferredEdge: .maxX)
+    }
     @objc private func toggleMenu(_ s: NSMenuItem) { find(s).map(toggle) }
     @objc private func deleteMenu(_ s: NSMenuItem) { find(s).map(delete) }
     @objc private func editClicked() { todo(at: table.clickedRow).map(edit) }
@@ -2526,8 +2796,11 @@ final class TodoCell: NSTableCellView {
 
 /// NSTableView dengan pintasan papan ketik untuk tab Todo.
 final class TodoTable: NSTableView {
-    enum Key { case enter, space, delete }
+    enum Key { case enter, space, delete, copy }
     var onKey: ((Key) -> Bool)?
+
+    /// ⌘C (lewat menu Edit aplikasi) = salin todo yang dipilih.
+    @objc func copy(_ sender: Any?) { _ = onKey?(.copy) }
 
     override func keyDown(with event: NSEvent) {
         let key: Key?
@@ -3200,6 +3473,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
         contextMenu.autoenablesItems = false
+        NSApp.mainMenu = AppDelegate.editMenu()
 
         notifier.store = store
         notifier.openApp = { [weak self] in self?.showPopover(.chat) }
@@ -3531,6 +3805,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func quit() { NSApp.terminate(nil) }
+
+    /// Menu utama tak terlihat (aplikasi menu bar) berisi menu Edit, supaya ⌘C / ⌘V / ⌘X / ⌘A / ⌘Z bekerja di
+    /// semua kolom teks, ⌘C di pratinjau detail, dan ⌘C di daftar Pengaturan → Todo.
+    static func editMenu() -> NSMenu {
+        let main = NSMenu()
+        let editItem = NSMenuItem()
+        let edit = NSMenu(title: "Edit")
+        let items: [(String, Selector, String, NSEvent.ModifierFlags)] = [
+            ("Urungkan", Selector(("undo:")), "z", [.command]),
+            ("Ulangi", Selector(("redo:")), "z", [.command, .shift]),
+            ("Potong", #selector(NSText.cut(_:)), "x", [.command]),
+            ("Salin", #selector(NSText.copy(_:)), "c", [.command]),
+            ("Tempel", #selector(NSText.paste(_:)), "v", [.command]),
+            ("Pilih Semua", #selector(NSText.selectAll(_:)), "a", [.command]),
+        ]
+        for (title, action, key, mods) in items {
+            let i = NSMenuItem(title: title, action: action, keyEquivalent: key)
+            i.keyEquivalentModifierMask = mods
+            edit.addItem(i)
+        }
+        editItem.submenu = edit
+        main.addItem(NSMenuItem()) // posisi menu aplikasi
+        main.addItem(editItem)
+        return main
+    }
 }
 
 let app = NSApplication.shared

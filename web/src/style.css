@@ -943,3 +943,11 @@ input[type='checkbox'].tick:disabled {
 .icon {
   flex-shrink: 0;
 }
+
+/* textarea sementara untuk salin cadangan (copy.js) */
+.offscreen {
+  position: fixed;
+  left: -9999px;
+  top: 0;
+  opacity: 0;
+}
