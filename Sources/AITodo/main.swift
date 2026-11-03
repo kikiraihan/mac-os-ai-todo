@@ -101,6 +101,13 @@ enum LocalPrefs {
         set { d.set(newValue, forKey: "reminderScope") }
     }
 
+    /// Pengelompokan daftar di tab Todo: 0 = Waktu (bawaan: Terlambat, Hari ini, per tanggal, Tanpa tenggat),
+    /// 1 = Kategori (per kategori todo, "Tanpa kategori" paling bawah).
+    static var todoGroup: Int {
+        get { min(max(d.integer(forKey: "todoGroup"), 0), 1) }
+        set { d.set(newValue, forKey: "todoGroup") }
+    }
+
     /// Carousel contoh pertanyaan di atas kotak input chat (bawaan nyala; disembunyikan lewat klik kanan / Pengaturan).
     static var showSuggestions: Bool {
         get { flag("showSuggestions", default: true) }
@@ -1524,10 +1531,12 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
             scope.setWidth(0, forSegment: i) // lebar mengikuti label
         }
         scope.selectedSegment = mode == .reminders ? LocalPrefs.reminderScope : LocalPrefs.todoScope
+        scope.menu = mode == .todo ? todoGroupMenu : nil // klik kanan filter = pilih cara mengelompokkan todo
         scope.setAccessibilityLabel(mode == .reminders ? "Tampilkan pengingat" : "Tampilkan todo")
         scope.toolTip = mode == .reminders
             ? "Aktif: pengingat tanpa todo yang masih akan berbunyi. Selesai: dijeda / sudah berbunyi (✓ = aktifkan lagi)."
-            : "Hari ini: terlambat & hari ini. Semua: semua todo yang belum selesai. Selesai: ✓ = buka lagi."
+            : "Hari ini: terlambat & hari ini. Semua: semua todo yang belum selesai. Selesai: ✓ = buka lagi.\n" +
+              "Klik kanan untuk mengelompokkan menurut waktu atau kategori."
     }
 
     /// Kartu tambah todo hanya di tab Todo (bukan Selesai) dan setelah ＋ ditekan; selain itu filter naik ke atas.
@@ -1587,9 +1596,52 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         updateScopeLabels(b)
         if mode == .reminders { return rebuildReminders() }
         if showDone { return rebuildDone() }
+        for item in todoGroupMenu.items where item.action == #selector(groupMenuItem(_:)) {
+            item.state = item.tag == LocalPrefs.todoGroup ? .on : .off
+        }
+        if groupByCategory { return rebuildByCategory(b) }
         section("Terlambat", b.overdue, color: Theme.danger)
         section("Hari ini", b.today, showDate: false)
         if showAll { rebuildAll(b) } else { rebuildToday(b) }
+    }
+
+    /// Daftar todo dikelompokkan per kategori (Pengaturan → Umum, atau klik kanan filter).
+    private var groupByCategory: Bool { mode == .todo && LocalPrefs.todoGroup == 1 }
+
+    /// Menu klik kanan filter: Kelompokkan menurut Waktu / Kategori (tanda ✓ = pilihan sekarang).
+    private lazy var todoGroupMenu: NSMenu = {
+        let m = NSMenu()
+        let head = NSMenuItem(title: "Kelompokkan menurut", action: nil, keyEquivalent: "")
+        head.isEnabled = false
+        m.addItem(head)
+        for (i, title) in ["Waktu", "Kategori"].enumerated() {
+            let item = NSMenuItem(title: title, action: #selector(groupMenuItem(_:)), keyEquivalent: "")
+            item.target = self
+            item.tag = i
+            item.indentationLevel = 1
+            m.addItem(item)
+        }
+        return m
+    }()
+
+    @objc private func groupMenuItem(_ item: NSMenuItem) { app.setTodoGroup(item.tag) }
+
+    /// Kelompok kategori (urut abjad, "Tanpa kategori" paling bawah); di dalamnya urut tenggat seperti biasa:
+    /// terlambat, hari ini, mendatang, lalu tanpa tenggat. Hari ini = hanya terlambat & hari ini.
+    private func rebuildByCategory(_ b: TodoBuckets) {
+        let todos = showAll ? b.overdue + b.today + b.upcoming + b.noDate : b.overdue + b.today
+        if todos.isEmpty { return showAll ? rebuildAll(b) : rebuildToday(b) } // pesan kosong yang sama
+        var groups: [String: [Todo]] = [:]
+        for t in todos { groups[t.list, default: []].append(t) }
+        let names = groups.keys.filter { !$0.isEmpty }.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        var left = PopoverController.maxAllRows
+        for name in names + (groups[""] == nil ? [] : [""]) where left > 0 {
+            let rows = Array((groups[name] ?? []).prefix(left))
+            section(name.isEmpty ? "Tanpa kategori" : name, rows)
+            left -= rows.count
+        }
+        let shown = PopoverController.maxAllRows - left
+        if todos.count > shown { addListRow(linkButton("\(todos.count - shown) todo lainnya ada di browser", #selector(openWeb))) }
     }
 
     private func updateScopeLabels(_ b: TodoBuckets) {
@@ -1905,11 +1957,14 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         var meta: [String] = []
         if t.priority == "high" { meta.append("Prioritas tinggi") }
         if !t.dueDate.isEmpty {
-            var due = !showDate || t.dueDate == Clock.ymd(Date(), store.tz) ? "" : Clock.friendly(t.dueDate, now: Date(), store.tz)
+            let isToday = t.dueDate == Clock.ymd(Date(), store.tz)
+            // Dikelompokkan per kategori: tidak ada judul "Hari ini", jadi tanggal hari ini tetap ditulis
+            var due = !showDate || (isToday && !groupByCategory) ? "" : Clock.friendly(t.dueDate, now: Date(), store.tz)
             if !t.dueTime.isEmpty { due += (due.isEmpty ? "" : " ") + t.dueTime }
+            if groupByCategory && t.dueDate < Clock.ymd(Date(), store.tz) { meta.append("Terlambat") }
             if !due.isEmpty { meta.append(due) }
         }
-        if !t.list.isEmpty { meta.append(t.list) }
+        if !t.list.isEmpty && !groupByCategory { meta.append(t.list) } // kategori sudah jadi judul kelompok
         let titleText = UI.text(t.title, width: PopoverController.contentWidth - 30, size: 13)
         titleText.isSelectable = false // klik teks = salin, bukan memilih teks
         var texts: [NSView] = [titleText]
@@ -4001,6 +4056,12 @@ final class SettingsWindow: NSObject {
     private lazy var notifySwitch = Form.toggle(self, #selector(notifyChanged(_:)))
     private lazy var loginSwitch = Form.toggle(self, #selector(loginChanged(_:)))
     private lazy var suggestSwitch = Form.toggle(self, #selector(suggestChanged(_:)))
+    /// Kelompokkan daftar todo di popover: Waktu | Kategori.
+    private lazy var groupControl: NSSegmentedControl = {
+        let c = NSSegmentedControl(labels: ["Waktu", "Kategori"], trackingMode: .selectOne, target: self, action: #selector(groupChanged(_:)))
+        c.setAccessibilityLabel("Kelompokkan todo menurut")
+        return c
+    }()
 
     init(app: AppDelegate) {
         self.app = app
@@ -4059,6 +4120,7 @@ final class SettingsWindow: NSObject {
                 Form.row("Tampilkan jumlah todo", "Angka todo hari ini + terlambat di samping ikon ✓.", badgeSwitch),
                 Form.row("Pintasan ⌥⌘T", "Buka / tutup asisten dari aplikasi mana pun.", hotkeySwitch),
                 Form.row("Contoh pertanyaan", "Tombol cepat di atas kotak chat, mis. “Apa saja todo hari ini?”.", suggestSwitch),
+                Form.row("Kelompokkan todo", "Daftar di tab Todo: per waktu (tanggal) atau per kategori. Juga lewat klik kanan filter.", groupControl),
             ]),
             Form.section("Notifikasi", [
                 Form.row("Notifikasi di Mac ini", "Pengingat & tenggat dari server dijadwalkan di Mac, jadi tetap muncul walau sedang offline. " +
@@ -4077,6 +4139,7 @@ final class SettingsWindow: NSObject {
         hotkeySwitch.state = LocalPrefs.hotkey ? .on : .off
         notifySwitch.state = LocalPrefs.notifications ? .on : .off
         suggestSwitch.state = LocalPrefs.showSuggestions ? .on : .off
+        groupControl.selectedSegment = LocalPrefs.todoGroup
         loginSwitch.state = SMAppService.mainApp.status == .enabled ? .on : .off
 
         // Akun & Tentang dibangun ulang hanya kalau isinya berubah
@@ -4147,6 +4210,7 @@ final class SettingsWindow: NSObject {
     @objc func badgeChanged(_ s: NSSwitch) { if (s.state == .on) != LocalPrefs.showBadge { app.toggleBadge() } }
     @objc func hotkeyChanged(_ s: NSSwitch) { if (s.state == .on) != LocalPrefs.hotkey { app.toggleHotkey() } }
     @objc func suggestChanged(_ s: NSSwitch) { if (s.state == .on) != LocalPrefs.showSuggestions { app.toggleSuggestions() } }
+    @objc func groupChanged(_ c: NSSegmentedControl) { app.setTodoGroup(c.selectedSegment) }
     @objc func notifyChanged(_ s: NSSwitch) { if (s.state == .on) != LocalPrefs.notifications { app.toggleNotifications() } }
     @objc func loginChanged(_ s: NSSwitch) {
         app.toggleLogin()
@@ -4771,6 +4835,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             notifier.clearAll()
         }
         settings.reload()
+    }
+
+    /// Pengelompokan daftar tab Todo (0 = Waktu, 1 = Kategori): klik kanan filter di popover, atau Pengaturan → Umum.
+    func setTodoGroup(_ g: Int) {
+        guard g != LocalPrefs.todoGroup else { return }
+        LocalPrefs.todoGroup = g
+        stateChanged()
     }
 
     /// Contoh pertanyaan di atas input chat: klik kanan chip → sembunyikan, atau Pengaturan → Umum.

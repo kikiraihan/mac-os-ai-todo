@@ -189,6 +189,12 @@ Rancangan: [`../docs/PRD.md`](../docs/PRD.md). Perbarui setiap tugas selesai.
       bukan filter Selesai) / ⌘N membuka kartu & fokus ke judul, ＋ lagi atau Esc menutup (isian dikosongkan).
       Kartu tetap terbuka setelah Tambah (bisa menambah beruntun); pindah tab = tertutup
 - [ ] Uji manual: ＋ / ⌘N / Esc di tab Todo popover Mac sungguhan
+- [x] 0.10.0: daftar tab Todo popover Mac bisa **dikelompokkan menurut Waktu (bawaan) atau Kategori**
+      (`LocalPrefs.todoGroup`). Pilih lewat klik kanan filter Hari ini | Semua | Selesai, atau Pengaturan → Umum →
+      "Kelompokkan todo". Mode Kategori: kelompok urut abjad, "Tanpa kategori" paling bawah, di dalamnya urut tenggat;
+      baris menulis "Terlambat" / "hari ini" karena judul tanggal tidak ada, kategori tidak diulang di baris.
+      Filter Selesai tetap urut waktu selesai
+- [ ] Uji manual: klik kanan filter → Kategori, Pengaturan → Umum, di Mac sungguhan
 
 ## Berikutnya
 
