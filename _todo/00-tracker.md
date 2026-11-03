@@ -182,6 +182,9 @@ Rancangan: [`../docs/PRD.md`](../docs/PRD.md). Perbarui setiap tugas selesai.
       (`installEditShortcuts`) + menu Edit tak terlihat sebagai cadangan
 - [ ] Uji manual tiga tab popover, klik-salin, tab Pengingat di Pengaturan di Mac sungguhan
 - [ ] Uji manual ⌘C/⌘V/⌘X/⌘A/⌘Z di input chat, kolom tambah todo, kartu ubah, lembar Pengaturan
+- [x] 0.9.1: popover Mac ikut tertutup saat indikator menu bar lain diklik (monitor klik global selama popover
+      tampil, dilepas saat tertutup)
+- [ ] Uji manual: buka popover → klik indikator lain / Wi-Fi / jam → popover tertutup
 
 ## Berikutnya
 

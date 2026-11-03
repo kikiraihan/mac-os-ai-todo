@@ -4331,6 +4331,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Menu klik kanan (pintasan & Keluar). Klik kiri = popover.
     let contextMenu = NSMenu()
     var tick: Timer?
+    /// Klik di indikator menu bar app lain tidak membuat app ini nonaktif, jadi popover `.transient`
+    /// tidak ikut tertutup. Selama popover tampil, klik apa pun di luar app (monitor global) = tutup.
+    var outsideClickMonitor: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -4416,6 +4419,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !popover.isShown { popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY) }
         popover.contentViewController?.view.window?.makeKey()
         panel.didShow()
+        watchOutsideClicks()
+    }
+
+    /// Pasang monitor global (hanya menerima klik yang dikirim ke app lain, termasuk indikator menu bar
+    /// lain); dilepas lagi begitu popover tertutup.
+    func watchOutsideClicks() {
+        guard outsideClickMonitor == nil else { return }
+        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
+            self?.closePopover()
+        }
+        NotificationCenter.default.addObserver(self, selector: #selector(popoverDidClose(_:)),
+                                               name: NSPopover.didCloseNotification, object: popover)
+    }
+
+    @objc func popoverDidClose(_ note: Notification) {
+        if let m = outsideClickMonitor { NSEvent.removeMonitor(m) }
+        outsideClickMonitor = nil
+        NotificationCenter.default.removeObserver(self, name: NSPopover.didCloseNotification, object: popover)
     }
 
     func togglePopover(_ mode: PopoverController.Mode? = nil) {
