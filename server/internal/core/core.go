@@ -17,7 +17,7 @@ import (
 
 const (
 	MaxTitle           = 200
-	MaxNotes           = 2000
+	MaxNotes           = 5000 // detail todo: link, rincian, daftar catatan
 	MaxList            = 40
 	MaxReminderMessage = 500
 	MaxActiveReminders = 100
@@ -177,13 +177,15 @@ func checkCurrent[S any](getErr error, after json.RawMessage, stamp func(S) stri
 
 // TodoInput: field nil berarti "tidak diubah".
 type TodoInput struct {
-	Title    *string `json:"title"`
-	Notes    *string `json:"notes"`
-	List     *string `json:"list"`
-	Priority *string `json:"priority"`
-	DueDate  *string `json:"dueDate"`
-	DueTime  *string `json:"dueTime"`
-	Status   *string `json:"status"`
+	Title *string `json:"title"`
+	Notes *string `json:"notes"`
+	// AppendNotes menambah baris di bawah detail (notes) yang sudah ada, tanpa menimpanya.
+	AppendNotes *string `json:"appendNotes"`
+	List        *string `json:"list"`
+	Priority    *string `json:"priority"`
+	DueDate     *string `json:"dueDate"`
+	DueTime     *string `json:"dueTime"`
+	Status      *string `json:"status"`
 }
 
 func clean(s string) string {
@@ -203,6 +205,15 @@ func applyTodoInput(t *db.Todo, in TodoInput) {
 	}
 	if in.Notes != nil {
 		t.Notes = clean(*in.Notes)
+	}
+	if in.AppendNotes != nil {
+		if add := clean(*in.AppendNotes); add != "" {
+			if t.Notes == "" {
+				t.Notes = add
+			} else {
+				t.Notes += "\n" + add
+			}
+		}
 	}
 	if in.List != nil {
 		t.List = strings.ReplaceAll(clean(*in.List), "\n", " ")
@@ -232,7 +243,7 @@ func validateTodo(t *db.Todo) error {
 		return invalid("judul maksimal %d karakter", MaxTitle)
 	}
 	if utf8.RuneCountInString(t.Notes) > MaxNotes {
-		return invalid("catatan maksimal %d karakter", MaxNotes)
+		return invalid("detail maksimal %d karakter", MaxNotes)
 	}
 	if utf8.RuneCountInString(t.List) > MaxList {
 		return invalid("nama daftar maksimal %d karakter", MaxList)
