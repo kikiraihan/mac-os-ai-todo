@@ -42,7 +42,8 @@ Semua tampilan (aplikasi Mac & web) mengikuti gaya desain Apple (Human Interface
 - **Tanggal & jam selalu lewat picker**: web memakai input native `date` / `time` / `datetime-local`
   (klik di mana saja membuka picker — `web/src/pickers.js`), Mac memakai `NSDatePicker` (kalender
   `presentsCalendarOverlay`, jam `.hourMinute`). Pengecualian yang disengaja: kartu tambah cepat di tab
-  Manual Mac (dropdown Hari ini/Besok/Lusa + kolom jam) — jangan diubah tanpa izin pemilik.
+  Manual Mac (dropdown Hari ini/Besok/Lusa + kolom jam) — jangan diubah tanpa izin pemilik. Kartu ini
+  tersembunyi bawaan; tampil lewat tombol ＋ di header tab Todo (⌘N), Esc / ＋ lagi menutup.
 - Aksi alternatif mengikuti pola macOS: tahan ⌥ untuk menampilkan aksi kedua (mis. ○ selesai → ✎
   ubah, menu Salin → Salin judul saja), selalu dengan jalan lain yang mudah ditemukan (klik dua kali, klik kanan).
 - Salin todo = teks polos "Judul" + baris kosong + detail (`TodoCopy` di Mac, `web/src/copy.js`), selalu dengan

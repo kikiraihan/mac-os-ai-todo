@@ -1043,6 +1043,15 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
     private var undoable: BatchView?
     private var busy = false { didSet { updateControls() } }
     private lazy var clearButton = UI.iconButton("trash", tip: "Hapus riwayat chat", self, #selector(confirmClearHistory))
+    /// Tombol ＋ di header (tab Todo): buka / tutup kartu tambah todo (⌘N).
+    private lazy var newTodoButton: NSButton = {
+        let b = UI.iconButton("plus", tip: "Todo baru (⌘N)", self, #selector(toggleAddCard))
+        b.keyEquivalent = "n"
+        b.keyEquivalentModifierMask = .command
+        return b
+    }()
+    /// Kartu tambah todo terbuka? Bawaan tertutup supaya daftar tetap ringkas.
+    private var addCardOpen = false
 
     // Manual
     private let titleField = NSTextField()
@@ -1103,7 +1112,7 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         segment.translatesAutoresizingMaskIntoConstraints = false
         let web = UI.iconButton("globe", tip: "Buka AI Todo di browser", self, #selector(openWeb))
         let gear = UI.iconButton("gearshape", tip: "Pengaturan (⌘,)", self, #selector(openSettings))
-        let header = UI.stack([segment, NSView(), clearButton, web, gear], vertical: false, spacing: 4)
+        let header = UI.stack([segment, NSView(), clearButton, newTodoButton, web, gear], vertical: false, spacing: 4)
         header.translatesAutoresizingMaskIntoConstraints = false
         let line = NSBox()
         line.boxType = .separator
@@ -1451,6 +1460,9 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         titleField.placeholderString = "Judul todo, mis. Bayar listrik"
         titleField.target = self
         titleField.action = #selector(addManual)
+        titleField.delegate = self // Esc = tutup kartu tambah
+        titleField.setAccessibilityLabel("Judul todo baru")
+        timeField.delegate = self
         duePopup.addItems(withTitles: ["Tanpa tenggat", "Hari ini", "Besok", "Lusa"])
         duePopup.selectItem(at: 1)
         duePopup.controlSize = .small
@@ -1518,12 +1530,33 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
             : "Hari ini: terlambat & hari ini. Semua: semua todo yang belum selesai. Selesai: ✓ = buka lagi."
     }
 
-    /// Kartu tambah todo hanya di tab Todo (bukan Selesai); selain itu filter naik ke atas.
+    /// Kartu tambah todo hanya di tab Todo (bukan Selesai) dan setelah ＋ ditekan; selain itu filter naik ke atas.
     private func updateAddCard() {
-        let card = mode == .todo && !showDone
+        let canAdd = mode == .todo && !showDone
+        newTodoButton.isHidden = !canAdd
+        newTodoButton.contentTintColor = addCardOpen ? Theme.accent : .secondaryLabelColor
+        newTodoButton.toolTip = addCardOpen ? "Tutup form todo baru (Esc)" : "Todo baru (⌘N)"
+        let card = canAdd && addCardOpen
         addCard.isHidden = !card
         scopeBelowCard.isActive = card
         scopeAtTop.isActive = !card
+    }
+
+    /// ＋ / ⌘N: buka kartu tambah lalu fokus ke judul; tekan lagi = tutup.
+    @objc private func toggleAddCard() {
+        guard mode == .todo, !showDone else { return }
+        setAddCard(open: !addCardOpen)
+    }
+
+    private func setAddCard(open: Bool) {
+        addCardOpen = open
+        if !open {
+            titleField.stringValue = ""
+            timeField.stringValue = ""
+            addError.isHidden = true
+        }
+        updateAddCard()
+        view.window?.makeFirstResponder(open ? titleField : nil)
     }
 
     /// Todo (terbuka atau selesai) menurut id.
@@ -2150,7 +2183,7 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
 
     func select(_ m: Mode) {
         _ = view
-        if m != mode { editor = nil }
+        if m != mode { editor = nil; addCardOpen = false }
         mode = m
         segment.selectedSegment = m.rawValue
         configureScope()
@@ -2165,10 +2198,12 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         if mode == .chat {
             view.window?.makeFirstResponder(input)
             loadHistory()
-        } else if mode == .reminders || showDone {
-            view.window?.makeFirstResponder(nil) // tidak ada kolom isian di tab Pengingat / filter Selesai
+        } else if let editor {
+            view.window?.makeFirstResponder(editor.titleField)
+        } else if mode == .todo && !showDone && addCardOpen {
+            view.window?.makeFirstResponder(titleField)
         } else {
-            view.window?.makeFirstResponder(editor?.titleField ?? titleField)
+            view.window?.makeFirstResponder(nil) // kartu tambah tertutup / tab Pengingat / filter Selesai
         }
     }
 
@@ -2448,6 +2483,11 @@ final class TodoEditor: NSView, NSTextFieldDelegate, NSComboBoxDelegate {
 
 extension PopoverController: NSTextFieldDelegate {
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        // Esc di kartu tambah todo = tutup kartu (Esc berikutnya baru menutup popover)
+        if control === titleField || control === timeField, selector == #selector(NSResponder.cancelOperation(_:)) {
+            setAddCard(open: false)
+            return true
+        }
         guard control === input, selector == #selector(NSResponder.insertNewline(_:)),
               NSApp.currentEvent?.modifierFlags.contains(.shift) == true else { return false }
         textView.insertNewlineIgnoringFieldEditor(nil)

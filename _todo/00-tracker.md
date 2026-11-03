@@ -185,6 +185,10 @@ Rancangan: [`../docs/PRD.md`](../docs/PRD.md). Perbarui setiap tugas selesai.
 - [x] 0.9.1: popover Mac ikut tertutup saat indikator menu bar lain diklik (monitor klik global selama popover
       tampil, dilepas saat tertutup)
 - [ ] Uji manual: buka popover → klik indikator lain / Wi-Fi / jam → popover tertutup
+- [x] 0.9.2: kartu tambah todo di tab Todo popover Mac **disembunyikan bawaan**; tombol ＋ di header (hanya tab Todo,
+      bukan filter Selesai) / ⌘N membuka kartu & fokus ke judul, ＋ lagi atau Esc menutup (isian dikosongkan).
+      Kartu tetap terbuka setelah Tambah (bisa menambah beruntun); pindah tab = tertutup
+- [ ] Uji manual: ＋ / ⌘N / Esc di tab Todo popover Mac sungguhan
 
 ## Berikutnya
 
