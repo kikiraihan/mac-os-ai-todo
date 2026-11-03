@@ -178,7 +178,10 @@ Rancangan: [`../docs/PRD.md`](../docs/PRD.md). Perbarui setiap tugas selesai.
       `updateReminder`, `deleteReminder`, `Todo.completedAt` + tes klien (selesai/aktifkan, ubah & kaitkan ke todo,
       jadwal lewat ditolak, mingguan, hapus)
 - [ ] Uji manual pratinjau detail, menu Salin (⌥), ⌘C/⌘V di Mac sungguhan
+- [x] Pintasan standar di popover & jendela Mac: ⌘C / ⌘V / ⌘X / ⌘A / ⌘Z / ⇧⌘Z / ⌘W lewat monitor lokal
+      (`installEditShortcuts`) + menu Edit tak terlihat sebagai cadangan
 - [ ] Uji manual tiga tab popover, klik-salin, tab Pengingat di Pengaturan di Mac sungguhan
+- [ ] Uji manual ⌘C/⌘V/⌘X/⌘A/⌘Z di input chat, kolom tambah todo, kartu ubah, lembar Pengaturan
 
 ## Berikutnya
 
