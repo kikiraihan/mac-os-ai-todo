@@ -3035,16 +3035,16 @@ final class TodoCell: NSTableCellView {
         if !t.notes.isEmpty { m.append(t.notes.replacingOccurrences(of: "\n", with: " ")) }
         // Todo yang punya pengingat aktif: 🔔 + waktu berbunyi berikutnya di depan keterangan
         let text = NSMutableAttributedString()
-        let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor]
+        let metaAttrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor]
         if let r = reminder, let d = Clock.parseStamp(r.nextFireAt), let bell = UI.symbol("bell.fill", 9)?.withSymbolConfiguration(.init(paletteColors: [Theme.accent])) {
             let icon = NSTextAttachment()
             icon.image = bell
             text.append(NSAttributedString(attachment: icon))
             let name = Clock.friendly(Clock.ymd(d, tz), now: Date(), tz)
             text.append(NSAttributedString(string: " " + name.prefix(1).uppercased() + name.dropFirst() + " " + Clock.hm(d, tz)
-                + (m.isEmpty ? "" : " · "), attributes: attrs))
+                + (m.isEmpty ? "" : " · "), attributes: metaAttrs))
         }
-        text.append(NSAttributedString(string: m.joined(separator: " · "), attributes: attrs))
+        text.append(NSAttributedString(string: m.joined(separator: " · "), attributes: metaAttrs))
         meta.attributedStringValue = text
         meta.lineBreakMode = .byTruncatingTail
         meta.isHidden = text.length == 0
