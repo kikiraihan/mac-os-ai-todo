@@ -4220,13 +4220,18 @@ final class SettingsWindow: NSObject {
 }
 
 // MARK: - Pembaruan (rilis GitHub bertanda tangan Ed25519, pola PasteLAN)
+// Rilis diambil LEWAT SERVER AI Todo (GET /api/app/mac/latest & /download/...), karena repo GitHub private:
+// server memegang token GitHub read-only, aplikasi memakai token perangkat yang sudah ada. Server hanya perantara —
+// keaslian file tetap dipastikan di sini lewat tanda tangan Ed25519.
 
 final class Updater: NSObject {
     let repo = "kikiraihan/mac-os-ai-todo"
     let appName = "AITodo"
     let menuItem = NSMenuItem(title: "Cek pembaruan…", action: #selector(Updater.checkNow), keyEquivalent: "")
-    typealias Release = (version: String, zip: URL?, sig: URL?, page: URL)
+    typealias Release = (version: String, zip: Bool, sig: Bool, page: URL)
     var latest: Release?
+    /// Klien server (token perangkat). Diisi AppDelegate sebelum start().
+    weak var api: APIClient?
     /// Penyebab pengecekan terakhir gagal (nil kalau berhasil), untuk ditampilkan di alert.
     var lastError: String?
 
@@ -4266,7 +4271,8 @@ final class Updater: NSObject {
     }
 
     func start() {
-        check { [weak self] _ in self?.refreshMenu() }
+        // Beri waktu aplikasi tersambung ke server dulu.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 20) { [weak self] in self?.check { _ in self?.refreshMenu() } }
         let t = Timer(timeInterval: 24 * 3600, repeats: true) { [weak self] _ in self?.check { _ in self?.refreshMenu() } }
         t.tolerance = 3600
         RunLoop.main.add(t, forMode: .common)
@@ -4279,40 +4285,38 @@ final class Updater: NSObject {
     }
 
     func check(_ done: @escaping (Bool) -> Void) {
-        guard let url = URL(string: "https://api.github.com/repos/\(repo)/releases/latest") else { return done(false) }
-        var req = URLRequest(url: url)
-        req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        req.timeoutInterval = 15
-        URLSession.shared.dataTask(with: req) { data, resp, err in
-            var info: Release?
-            // Simpan penyebab gagal supaya pesan ke pengguna tidak selalu "periksa koneksi internet".
-            let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
-            var why: String?
-            if err != nil || status == 0 {
-                why = "Tidak bisa terhubung ke GitHub. Periksa koneksi internet, lalu coba lagi."
-            } else if status == 404 {
-                why = "GitHub menjawab 404: repo \(self.repo) privat atau belum punya rilis. Aplikasi hanya bisa mengecek rilis di repo publik."
-            } else if status == 403 || status == 429 {
-                why = "GitHub membatasi pengecekan sementara (HTTP \(status)). Coba lagi nanti."
-            } else if status != 200 {
-                why = "GitHub menjawab HTTP \(status). Coba lagi nanti."
-            }
-            if let data, let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let tag = j["tag_name"] as? String,
-               let page = (j["html_url"] as? String).flatMap({ URL(string: $0) }) {
-                let assets = j["assets"] as? [[String: Any]] ?? []
-                func asset(_ name: String) -> URL? {
-                    (assets.first { ($0["name"] as? String) == name }?["browser_download_url"] as? String).flatMap { URL(string: $0) }
-                }
-                info = (tag, asset("\(self.appName).zip"), asset("\(self.appName).zip.sig"), page)
-            }
-            if info == nil && why == nil { why = "Jawaban GitHub tidak dikenali. Coba lagi nanti." }
+        guard let api, api.isConfigured else {
+            lastError = "Hubungkan AI Todo ke server dulu (Pengaturan → Akun). Pembaruan diunduh lewat server Anda."
+            return done(false)
+        }
+        api.macRelease { r in
             DispatchQueue.main.async {
-                if let info { self.latest = info }
-                self.lastError = info == nil ? why : nil
-                done(info != nil)
+                switch r {
+                case .success(let m):
+                    let page = m.page.flatMap { URL(string: $0) } ?? URL(string: "https://github.com/\(self.repo)/releases")!
+                    self.latest = (m.version, m.zip, m.sig, page)
+                    self.lastError = nil
+                    done(true)
+                case .failure(let e):
+                    self.lastError = Updater.explain(e)
+                    done(false)
+                }
             }
-        }.resume()
+        }
+    }
+
+    /// Pesan gagal yang menyebut penyebabnya (pesan dari server sudah berbahasa Indonesia).
+    static func explain(_ e: APIError) -> String {
+        switch e {
+        case .server(404, "endpoint tidak ada"):
+            return "Server AI Todo Anda belum mendukung pembaruan lewat server. Perbarui server dulu, lalu coba lagi."
+        case .server(501, let m):
+            return "Server belum diatur untuk pembaruan: \(m)"
+        case .network:
+            return "Tidak bisa terhubung ke server AI Todo. Periksa koneksi internet, lalu coba lagi."
+        default:
+            return e.description
+        }
     }
 
     @objc func checkNow() {
@@ -4351,31 +4355,34 @@ final class Updater: NSObject {
     /// Unduh .zip rilis, cek tanda tangan, ekstrak, lalu ganti .app lama setelah aplikasi ini keluar.
     func install(_ l: Release) {
         let dest = Bundle.main.bundleURL
-        guard let zip = l.zip, let sigURL = l.sig, !Updater.publicKey.isEmpty, dest.pathExtension == "app",
+        guard let api, l.zip, l.sig, !Updater.publicKey.isEmpty, dest.pathExtension == "app",
               FileManager.default.isWritableFile(atPath: dest.deletingLastPathComponent().path) else {
             // Jelaskan kenapa tidak bisa dipasang otomatis, jangan diam-diam membuka GitHub.
             let why: String
             if Updater.publicKey.isEmpty { why = "Versi AI Todo ini belum punya kunci publik untuk memeriksa tanda tangan rilis, jadi update otomatis nonaktif. Pasang versi baru ini secara manual sekali; setelah itu update berikutnya bisa otomatis." }
-            else if l.zip == nil { why = "Rilis \(l.version) tidak berisi \(appName).zip." }
-            else if l.sig == nil { why = "Rilis \(l.version) belum ditandatangani (secret AITODO_SIGNING_KEY belum diatur di GitHub)." }
+            else if api == nil { why = "AI Todo belum terhubung ke server." }
+            else if !l.zip { why = "Rilis \(l.version) tidak berisi \(appName).zip." }
+            else if !l.sig { why = "Rilis \(l.version) belum ditandatangani (secret AITODO_SIGNING_KEY belum diatur di GitHub)." }
             else if dest.pathExtension != "app" { why = "AI Todo tidak berjalan dari file .app." }
             else { why = "Folder \(dest.deletingLastPathComponent().path) tidak bisa ditulis. Pindahkan AITodo.app ke Applications." }
             return fail(why, l.page)
         }
         menuItem.title = "Mengunduh \(l.version)…"
         menuItem.isEnabled = false
-        URLSession.shared.dataTask(with: sigURL) { sigData, _, _ in
-            let signature = sigData.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-            URLSession.shared.downloadTask(with: zip) { tmp, _, err in
+        // Keduanya lewat server (token perangkat); file zip dicek tanda tangannya sebelum dipasang.
+        api.macDownload("\(appName).zip.sig") { sigResult in
+            let signature = (try? sigResult.get()).map { String(decoding: $0, as: UTF8.self) } ?? ""
+            api.macDownload("\(self.appName).zip") { zipResult in
                 let fm = FileManager.default
                 let work = fm.temporaryDirectory.appendingPathComponent("\(self.appName)-update-\(UUID().uuidString)")
                 let zipFile = work.appendingPathComponent("update.zip")
                 let newApp = work.appendingPathComponent("\(self.appName).app")
                 var problem: String?
-                if let tmp {
+                switch zipResult {
+                case .success(let data):
                     do {
                         try fm.createDirectory(at: work, withIntermediateDirectories: true)
-                        try fm.moveItem(at: tmp, to: zipFile)
+                        try data.write(to: zipFile)
                         guard Updater.verify(zip: zipFile, tag: l.version, signature: signature) else {
                             throw NSError(domain: "AITodo", code: 1, userInfo: [NSLocalizedDescriptionKey:
                                 "Tanda tangan rilis tidak cocok. Update dibatalkan demi keamanan."])
@@ -4391,8 +4398,8 @@ final class Updater: NSObject {
                             problem = "File rilis berisi aplikasi lain."
                         }
                     } catch { problem = error.localizedDescription }
-                } else {
-                    problem = err?.localizedDescription ?? "Unduhan gagal."
+                case .failure(let e):
+                    problem = "Unduhan gagal: \(Updater.explain(e))"
                 }
                 DispatchQueue.main.async {
                     if let problem { return self.fail(problem, l.page) }
@@ -4486,6 +4493,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         RunLoop.main.add(t, forMode: .common)
         tick = t
 
+        updater.api = store.api // pembaruan diunduh lewat server (token perangkat)
         updater.start()
         if store.api.isConfigured {
             store.start()

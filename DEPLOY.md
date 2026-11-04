@@ -109,6 +109,7 @@ Lalu sunting `.env` (`nano .env`) dan isi nilai dari §1:
 | `TRUST_PROXY` | `true` (biarkan; aplikasi hanya di belakang nginx host) |
 | `VAPID_SUBSCRIBER` | `mailto:...` dari pemilik |
 | `KENARI_API_KEY` / `AGNES_API_KEY` / `OPENROUTER_API_KEY` | dari pemilik; kosongkan yang tidak dipakai |
+| `GITHUB_RELEASE_TOKEN` | token GitHub fine-grained **read-only** (repo ini saja, "Contents: Read-only") dari pemilik, supaya aplikasi Mac bisa update lewat server walau repo private; minta pemilik **menempelnya sendiri** |
 
 Jangan isi `*_BASE_URL` kecuali pemilik memintanya — host di luar allowlist akan ditolak server.
 
@@ -116,7 +117,7 @@ Periksa tanpa membocorkan isi:
 
 ```bash
 grep -cE '^ADMIN_PASSWORD=GANTI' .env            # harus 0
-for k in KENARI_API_KEY AGNES_API_KEY OPENROUTER_API_KEY; do
+for k in KENARI_API_KEY AGNES_API_KEY OPENROUTER_API_KEY GITHUB_RELEASE_TOKEN; do
   grep -qE "^${k}=.+" .env && echo "$k: terisi" || echo "$k: kosong"
 done
 stat -c '%a %U' .env                              # harus 600
@@ -284,6 +285,7 @@ Skema database bermigrasi otomatis saat start. Kalau health check gagal setelah 
 | Tes model: `401` | key salah / tidak aktif → pemilik membuat key baru |
 | Notifikasi tidak muncul | bukan HTTPS; di iPhone PWA belum di-install dari Layar Utama; izin notifikasi ditolak di browser |
 | Jam pengingat meleset | atur zona waktu di Pengaturan pengguna atau `TIMEZONE` di `.env` |
+| Mac: "Gagal mengecek pembaruan" — rilis tidak ditemukan | `GITHUB_RELEASE_TOKEN` kosong / kedaluwarsa / tidak punya akses repo: buat token baru → isi `.env` → `make up`. Log server saat start menulis "Rilis aplikasi Mac …: token terpasang" |
 | Build image gagal karena memori | VPS < 1,5 GB RAM bebas: tambah swap sementara, atau build di mesin lain dan kirim image-nya |
 
 ## 12. Ringkasan perintah

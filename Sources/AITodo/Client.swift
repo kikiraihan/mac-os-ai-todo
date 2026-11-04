@@ -417,6 +417,25 @@ final class APIClient {
     func logout(_ c: @escaping (Result<Ok, APIError>) -> Void) {
         send("POST", "/logout", as: Ok.self, completion: c)
     }
+
+    // MARK: Pembaruan aplikasi (lewat server, repo GitHub boleh private)
+
+    /// Rilis terbaru aplikasi Mac. version = tag rilis apa adanya (mis. "v0.11.0", ikut ditandatangani).
+    struct MacRelease: Decodable {
+        let version: String
+        let page: String?
+        let zip: Bool
+        let sig: Bool
+    }
+
+    func macRelease(_ c: @escaping (Result<MacRelease, APIError>) -> Void) {
+        send("GET", "/app/mac/latest", timeout: 20, as: MacRelease.self, completion: c)
+    }
+
+    /// Unduh file rilis ("AITodo.zip" / "AITodo.zip.sig"). Keasliannya dicek pemanggil (tanda tangan Ed25519).
+    func macDownload(_ name: String, _ c: @escaping (Result<Data, APIError>) -> Void) {
+        raw("GET", "/app/mac/download/" + name, timeout: 600, completion: c)
+    }
 }
 
 // MARK: - Waktu (zona pengguna, bukan zona Mac)

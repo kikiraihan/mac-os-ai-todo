@@ -198,6 +198,8 @@ Rancangan: [`../docs/PRD.md`](../docs/PRD.md). Perbarui setiap tugas selesai.
 
 ## Berikutnya
 
+- [x] 0.11.0: pembaruan aplikasi Mac lewat server (`/api/app/mac/*`, token GitHub read-only di `.env`) — repo private tetap bisa update
+- [ ] Pemilik: isi `GITHUB_RELEASE_TOKEN` di `.env` VPS, lalu pasang AITodo 0.11.0 manual sekali
 - [x] Deploy otomatis tanpa kredensial GitHub di VPS: kode dikirim sebagai git bundle lewat SSH (repo private tetap bisa deploy)
 - [x] 0.10.1: pesan gagal cek pembaruan menyebut penyebab sebenarnya (404 repo privat / batas akses / jaringan)
 - [x] 0.10.1: halaman Pengaturan (Umum, Akun, Tentang) bisa digulir; switch & tombol rata kanan
