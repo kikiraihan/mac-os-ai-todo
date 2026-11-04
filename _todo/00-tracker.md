@@ -202,7 +202,7 @@ Rancangan: [`../docs/PRD.md`](../docs/PRD.md). Perbarui setiap tugas selesai.
       prioritas, tanggal & jam picker; pengingat: pesan/detail, todo terkait, jadwal sekali/harian/mingguan/bulanan).
       "Pengingat baru…" di daftar kini membuka form ini (bukan lembar Pengaturan)
 - [ ] Uji manual di Mac sungguhan: ＋ / ⌘N / ⌥-klik ＋ / Esc di tab Todo & Pengingat, isian lengkap, picker jam
-- [x] Perbaikan build Mac (rusak sejak 0.11.0): `.resume()` berlebih setelah `macDownload` di `Updater.install`
+- [x] 0.12.1: perbaikan build Mac (rusak sejak 0.11.0): `.resume()` berlebih setelah `macDownload` di `Updater.install`
 
 ## Berikutnya
 
