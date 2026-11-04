@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<title>AI Todo — Teaser</title>
+<!--
+  Sumber video teaser. Setiap frame ditentukan murni oleh waktu t (detik) lewat window.seek(t),
+  jadi render.js bisa memotret frame demi frame secara deterministik (tanpa requestAnimationFrame).
+  Buka langsung di browser untuk pratinjau: animasi berjalan otomatis bila tidak ada ?render.
+-->
+<style>
+  :root {
+    --accent: #0f766e;
+    --accent-2: #2dd4bf;
+    --amber: #fbbf24;
+    --ink: #0b1220;
+    --paper: #f4f6f8;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1920px; height: 1080px; overflow: hidden; background: #050b14; }
+  body { font-family: "Inter", system-ui, sans-serif; color: #fff; -webkit-font-smoothing: antialiased; }
+  #stage { position: absolute; inset: 0; overflow: hidden; }
+
+  /* Latar: gradasi teal-ungu yang bergerak pelan */
+  .bg { position: absolute; inset: -20%; filter: blur(80px); }
+  .blob { position: absolute; border-radius: 50%; opacity: .55; }
+  .b1 { width: 900px; height: 900px; background: #0f766e; }
+  .b2 { width: 800px; height: 800px; background: #4338ca; }
+  .b3 { width: 700px; height: 700px; background: #be185d; opacity: .35; }
+  .grain { position: absolute; inset: 0; background: radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,.55) 100%); }
+
+  .scene { position: absolute; inset: 0; opacity: 0; will-change: opacity, transform; }
+
+  /* Ikon aplikasi */
+  .icon { position: absolute; width: 220px; height: 220px; border-radius: 52px; background: var(--accent);
+          box-shadow: 0 40px 120px rgba(15,118,110,.55), inset 0 2px 0 rgba(255,255,255,.18); }
+  .icon svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .icon .check { stroke-dasharray: 60; }
+
+  .title { position: absolute; left: 0; right: 0; text-align: center; font-family: "Inter Display", "Inter", sans-serif;
+           font-weight: 800; letter-spacing: -0.03em; }
+  .sub { position: absolute; left: 0; right: 0; text-align: center; font-weight: 500; color: rgba(255,255,255,.72); }
+  .word { display: inline-block; }
+
+  /* Adegan chat */
+  .chatbox { position: absolute; left: 50%; top: 50%; width: 1100px; transform: translate(-50%, -50%); }
+  .bubble { position: absolute; right: 0; max-width: 820px; padding: 26px 34px; border-radius: 34px 34px 10px 34px;
+            background: var(--accent); font-size: 40px; line-height: 1.3; font-weight: 500;
+            box-shadow: 0 20px 60px rgba(0,0,0,.35); }
+  .caret { display: inline-block; width: 3px; height: 1em; background: #fff; vertical-align: -0.12em; margin-left: 3px; }
+  .reply { position: absolute; left: 0; width: 900px; font-size: 34px; line-height: 1.4; color: rgba(255,255,255,.92); }
+  .card { position: absolute; left: 0; width: 900px; padding: 22px 30px; border-radius: 26px;
+          background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.16);
+          backdrop-filter: blur(20px); }
+  .row { display: flex; align-items: center; gap: 20px; font-size: 32px; padding: 12px 0; opacity: 0; }
+  .row .ic { width: 50px; height: 50px; border-radius: 14px; display: grid; place-items: center; font-size: 28px; font-weight: 700; }
+  .ic.add { background: rgba(45,212,191,.18); color: var(--accent-2); }
+  .ic.bell { background: rgba(251,191,36,.18); color: var(--amber); }
+  .ic.done { background: rgba(45,212,191,.18); color: var(--accent-2); }
+  .chip-undo { position: absolute; left: 0; display: inline-flex; gap: 16px; align-items: center; padding: 14px 24px;
+               border-radius: 999px; background: rgba(255,255,255,.1); font-size: 26px; color: rgba(255,255,255,.85); }
+  .chip-undo b { color: #fff; background: rgba(255,255,255,.14); padding: 6px 14px; border-radius: 10px; font-weight: 600; }
+
+  /* Screenshot dalam bingkai */
+  .shot { position: absolute; border-radius: 22px; overflow: hidden; box-shadow: 0 50px 140px rgba(0,0,0,.6);
+          border: 1px solid rgba(255,255,255,.12); background: #fff; }
+  .shot img { display: block; width: 100%; height: auto; }
+  .caption { position: absolute; left: 120px; font-family: "Inter Display", "Inter", sans-serif; font-weight: 800;
+             font-size: 76px; letter-spacing: -0.03em; line-height: 1.05; }
+  .caption small { display: block; font-family: "Inter", sans-serif; font-weight: 500; font-size: 32px; letter-spacing: 0;
+                   color: rgba(255,255,255,.7); margin-top: 18px; }
+  .tag { display: inline-block; padding: 8px 18px; border-radius: 999px; background: rgba(45,212,191,.16); color: var(--accent-2);
+         font-size: 24px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; margin-bottom: 22px; }
+
+  /* Grid fitur */
+  .features { position: absolute; left: 50%; top: 450px; width: 1500px; transform: translateX(-50%);
+              display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px; }
+  .feat { padding: 34px 36px; border-radius: 28px; background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.14);
+          opacity: 0; }
+  .feat .e { font-size: 46px; margin-bottom: 18px; }
+  .feat h3 { font-size: 34px; font-weight: 700; letter-spacing: -0.01em; }
+  .feat p { font-size: 24px; color: rgba(255,255,255,.66); margin-top: 8px; line-height: 1.35; }
+
+  .badge { position: absolute; left: 0; right: 0; margin: 0 auto; width: fit-content; padding: 12px 26px; border-radius: 999px;
+           border: 1px solid rgba(255,255,255,.22); font-size: 26px; color: rgba(255,255,255,.8); font-weight: 500;
+           white-space: nowrap; }
+  .flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
+  .fade { position: absolute; inset: 0; background: #000; opacity: 0; pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div class="bg">
+    <div class="blob b1" id="b1"></div>
+    <div class="blob b2" id="b2"></div>
+    <div class="blob b3" id="b3"></div>
+  </div>
+  <div class="grain"></div>
+
+  <!-- 1. Pembuka: ikon + nama -->
+  <section class="scene" id="s1">
+    <div class="icon" id="s1icon" style="left:850px; top:300px">
+      <svg viewBox="0 0 64 64"><path class="check" id="s1check" d="M18 33l9 9 19-20" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/><circle id="s1dot" cx="48" cy="16" r="6" fill="#fbbf24"/></svg>
+    </div>
+    <div class="title" id="s1title" style="top:570px; font-size:140px">AI Todo</div>
+    <div class="sub" id="s1sub" style="top:740px; font-size:44px">Cukup ketik. Asisten yang mencatat.</div>
+  </section>
+
+  <!-- 2. Chat bahasa sehari-hari -->
+  <section class="scene" id="s2">
+    <div class="chatbox" style="height:760px">
+      <div class="bubble" id="s2bubble" style="top:0"><span id="s2typed"></span><span class="caret" id="s2caret"></span></div>
+      <div class="reply" id="s2reply" style="top:230px">Siap! Todo dibuat, pengingat dipasang, galon kutandai selesai.</div>
+      <div class="card" id="s2card" style="top:340px">
+        <div class="row" id="r1"><span class="ic add">＋</span>Todo: Telpon bengkel — Besok 09:00</div>
+        <div class="row" id="r2"><span class="ic bell">🔔</span>Pengingat: Rab 4 Nov 09:00</div>
+        <div class="row" id="r3"><span class="ic done">✓</span>Selesai: Beli galon &amp; token listrik</div>
+      </div>
+      <div class="chip-undo" id="s2undo" style="top:660px">✓ 3 aksi dijalankan <b>Batalkan</b></div>
+    </div>
+  </section>
+
+  <!-- 3. Menu bar Mac -->
+  <section class="scene" id="s3">
+    <div class="caption" id="s3cap" style="top:330px"><span class="tag">macOS</span><br>Selalu di<br>menu bar.<small>Todo hari ini, chat cepat,<br>dan notifikasi lokal.</small></div>
+    <div class="shot" id="s3shot" style="left:860px; top:120px; width:900px; border-radius:26px"><img src="../../docs/screenshots/mac-chat-dark.webp" alt=""></div>
+  </section>
+
+  <!-- 4. Web + Mac berdampingan -->
+  <section class="scene" id="s4">
+    <div class="title" id="s4title" style="top:90px; font-size:84px">Satu daftar. Semua perangkat.</div>
+    <div class="shot" id="s4shot" style="left:260px; top:230px; width:1400px"><img src="../../docs/screenshots/overview.webp" alt=""></div>
+  </section>
+
+  <!-- 5. HP -->
+  <section class="scene" id="s5">
+    <div class="title" id="s5title" style="top:80px; font-size:84px">Di HP juga — tinggal geser.</div>
+    <div class="shot" id="s5shot" style="left:310px; top:220px; width:1300px; background:#eef0f3"><img src="../../docs/screenshots/web-phone.webp" alt=""></div>
+  </section>
+
+  <!-- 6. Fitur -->
+  <section class="scene" id="s6">
+    <div class="title" id="s6title" style="top:140px; font-size:96px">Dibuat supaya kamu<br>tidak lupa.</div>
+    <div class="features">
+      <div class="feat"><div class="e">🔁</div><h3>Pengingat berulang</h3><p>Harian, mingguan, tiap 2 jam di jam kerja.</p></div>
+      <div class="feat"><div class="e">🧠</div><h3>Ingatan AI</h3><p>Asisten ingat kebiasaan &amp; konteksmu.</p></div>
+      <div class="feat"><div class="e">↶</div><h3>Semua bisa di-undo</h3><p>Aksi berisiko selalu minta konfirmasi.</p></div>
+      <div class="feat"><div class="e">🔔</div><h3>Notifikasi di mana saja</h3><p>Web Push di HP, notifikasi lokal di Mac.</p></div>
+      <div class="feat"><div class="e">✍️</div><h3>Manual tetap lengkap</h3><p>Semua bisa lewat form, tanpa AI.</p></div>
+      <div class="feat"><div class="e">🔒</div><h3>Server milikmu</h3><p>Satu binary Go + SQLite. Key AI tetap di server.</p></div>
+    </div>
+  </section>
+
+  <!-- 7. Penutup -->
+  <section class="scene" id="s7">
+    <div class="icon" id="s7icon" style="left:880px; top:250px; width:160px; height:160px; border-radius:38px">
+      <svg viewBox="0 0 64 64"><path d="M18 33l9 9 19-20" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/><circle cx="48" cy="16" r="6" fill="#fbbf24"/></svg>
+    </div>
+    <div class="title" id="s7title" style="top:450px; font-size:150px">AI Todo</div>
+    <div class="sub" id="s7sub" style="top:640px; font-size:44px">Todo yang bisa diajak ngobrol.</div>
+    <div class="badge" id="s7badge" style="top:760px">Mac · Web · HP &nbsp;—&nbsp; self-hosted</div>
+  </section>
+
+  <div class="flash" id="flash"></div>
+  <div class="fade" id="fade"></div>
+</div>
+
+<script>
+  // ---- Pembantu animasi ----
+  const DURATION = 30;
+  const TOTAL = DURATION + 1.5; // tahan logo sejenak sebelum layar gelap
+  const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+  const prog = (t, a, b) => clamp((t - a) / (b - a));
+  const easeOut = (x) => 1 - Math.pow(1 - x, 3);
+  const easeInOut = (x) => (x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
+  const back = (x) => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); };
+  const lerp = (a, b, x) => a + (b - a) * x;
+  const $ = (id) => document.getElementById(id);
+
+  // Opasitas adegan: masuk di [a, a+fi], keluar di [b-fo, b]
+  function sceneAlpha(t, a, b, fi = .5, fo = .5) {
+    return Math.min(easeOut(prog(t, a, a + fi)), 1 - easeInOut(prog(t, b - fo, b)));
+  }
+  function show(el, alpha, extra = '') {
+    el.style.opacity = alpha;
+    el.style.visibility = alpha <= 0.001 ? 'hidden' : 'visible';
+    if (extra !== null) el.style.transform = extra;
+  }
+  function rise(el, t, start, dur = .7, dist = 40) {
+    const x = easeOut(prog(t, start, start + dur));
+    el.style.opacity = x;
+    el.style.transform = `translateY(${(1 - x) * dist}px)`;
+  }
+
+  const MSG = 'besok jam 9 ingetin telpon bengkel, terus tandai beli galon udah';
+
+  // ---- Linimasa (detik) ----
+  // s1 0–4 · s2 4–11.5 · s3 11.5–16 · s4 16–20.5 · s5 20.5–24.5 · s6 24.5–28 · s7 28–30 (+ penutup)
+  window.seek = function (t) {
+    // Latar bergerak
+    $('b1').style.transform = `translate(${300 + Math.sin(t * .25) * 200}px, ${200 + Math.cos(t * .2) * 150}px)`;
+    $('b2').style.transform = `translate(${1300 + Math.cos(t * .22) * 220}px, ${500 + Math.sin(t * .3) * 160}px)`;
+    $('b3').style.transform = `translate(${800 + Math.sin(t * .18 + 2) * 300}px, ${900 + Math.cos(t * .25) * 120}px)`;
+
+    // 1. Pembuka
+    {
+      const a = sceneAlpha(t, 0, 4, .01, .6);
+      show($('s1'), a, `scale(${lerp(1, 1.06, prog(t, 0, 4))})`);
+      const ic = back(prog(t, .2, 1.0));
+      $('s1icon').style.transform = `scale(${ic}) rotate(${(1 - ic) * -12}deg)`;
+      $('s1icon').style.opacity = clamp(ic * 2);
+      $('s1check').style.strokeDashoffset = 60 * (1 - easeOut(prog(t, .7, 1.4)));
+      const d = back(prog(t, 1.3, 1.8));
+      $('s1dot').style.transform = `scale(${d})`; $('s1dot').style.transformOrigin = '48px 16px';
+      rise($('s1title'), t, 1.2, .8, 50);
+      rise($('s1sub'), t, 1.9, .8, 30);
+    }
+
+    // 2. Chat
+    {
+      const a = sceneAlpha(t, 4, 11.5, .5, .6);
+      show($('s2'), a, `scale(${lerp(.98, 1.02, prog(t, 4, 11.5))})`);
+      const n = Math.round(MSG.length * prog(t, 4.5, 7.0));
+      $('s2typed').textContent = MSG.slice(0, n);
+      $('s2caret').style.opacity = t < 7.2 ? (Math.floor(t * 2.5) % 2 ? .2 : 1) : 0;
+      // gelembung "terkirim" sedikit memantul
+      const sent = back(prog(t, 7.2, 7.6));
+      $('s2bubble').style.transform = t > 7.2 ? `scale(${lerp(.96, 1, sent)})` : 'none';
+      rise($('s2reply'), t, 7.7, .6, 24);
+      rise($('s2card'), t, 8.1, .6, 30);
+      rise($('r1'), t, 8.4, .5, 16);
+      rise($('r2'), t, 8.75, .5, 16);
+      rise($('r3'), t, 9.1, .5, 16);
+      rise($('s2undo'), t, 9.7, .5, 16);
+    }
+
+    // 3. Menu bar Mac
+    {
+      const a = sceneAlpha(t, 11.5, 16, .6, .6);
+      show($('s3'), a, null);
+      const x = easeOut(prog(t, 11.5, 12.6));
+      $('s3cap').style.transform = `translateX(${(1 - x) * -60}px)`;
+      $('s3cap').style.opacity = x;
+      const k = prog(t, 11.5, 16);
+      $('s3shot').style.transform = `translateY(${(1 - easeOut(prog(t, 11.6, 12.8))) * 80}px) scale(${lerp(.98, 1.04, k)}) rotate(${lerp(1.2, 0, easeOut(prog(t, 11.6, 12.8)))}deg)`;
+    }
+
+    // 4. Web + Mac
+    {
+      const a = sceneAlpha(t, 16, 20.5, .6, .6);
+      show($('s4'), a, null);
+      rise($('s4title'), t, 16.1, .7, 30);
+      const k = easeInOut(prog(t, 16.2, 20.5));
+      $('s4shot').style.transform = `translateY(${(1 - easeOut(prog(t, 16.2, 17.2))) * 90}px) scale(${lerp(1, 1.08, k)})`;
+      $('s4shot').style.transformOrigin = '85% 30%';
+    }
+
+    // 5. HP
+    {
+      const a = sceneAlpha(t, 20.5, 24.5, .6, .6);
+      show($('s5'), a, null);
+      rise($('s5title'), t, 20.6, .7, 30);
+      const k = easeInOut(prog(t, 20.7, 24.5));
+      $('s5shot').style.transform = `translateY(${(1 - easeOut(prog(t, 20.7, 21.7))) * 90}px) scale(${lerp(1, 1.05, k)})`;
+    }
+
+    // 6. Fitur
+    {
+      const a = sceneAlpha(t, 24.5, 28.2, .5, .6);
+      show($('s6'), a, null);
+      rise($('s6title'), t, 24.6, .7, 30);
+      document.querySelectorAll('.feat').forEach((el, i) => rise(el, t, 25.0 + i * .15, .6, 30));
+    }
+
+    // 7. Penutup
+    {
+      const a = sceneAlpha(t, 28.0, DURATION + 10, .6, .1);
+      show($('s7'), a, null);
+      const ic = back(prog(t, 28.1, 28.8));
+      $('s7icon').style.transform = `scale(${ic})`;
+      rise($('s7title'), t, 28.4, .7, 40);
+      rise($('s7sub'), t, 28.8, .7, 24);
+      rise($('s7badge'), t, 29.1, .7, 16);
+    }
+
+    // Layar meredup di akhir
+    $('fade').style.opacity = easeInOut(prog(t, TOTAL - .6, TOTAL));
+  };
+  window.DURATION = TOTAL;
+
+  // Pratinjau di browser (tanpa ?render)
+  if (!location.search.includes('render')) {
+    const t0 = performance.now();
+    const loop = () => { window.seek(((performance.now() - t0) / 1000) % window.DURATION); requestAnimationFrame(loop); };
+    loop();
+  } else {
+    window.seek(0);
+  }
+</script>
+</body>
+</html>
