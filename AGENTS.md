@@ -41,9 +41,12 @@ Semua tampilan (aplikasi Mac & web) mengikuti gaya desain Apple (Human Interface
   mode gelap. Jangan menambah warna, ukuran huruf, atau gaya tombol baru tanpa alasan.
 - **Tanggal & jam selalu lewat picker**: web memakai input native `date` / `time` / `datetime-local`
   (klik di mana saja membuka picker — `web/src/pickers.js`), Mac memakai `NSDatePicker` (kalender
-  `presentsCalendarOverlay`, jam `.hourMinute`). Pengecualian yang disengaja: kartu tambah cepat di tab
-  Manual Mac (dropdown Hari ini/Besok/Lusa + kolom jam) — jangan diubah tanpa izin pemilik. Kartu ini
-  tersembunyi bawaan; tampil lewat tombol ＋ di header tab Todo (⌘N), Esc / ＋ lagi menutup.
+  `presentsCalendarOverlay`, jam `.hourMinute`). Kartu tambah cepat di tab Todo & Pengingat popover Mac:
+  dropdown Kapan (Hari ini/Besok/Lusa; Todo + "Tanpa tenggat", Pengingat + "Tiap hari") + **time picker**
+  (Todo: opsional lewat centang "Jam") — dropdown hari ini disengaja pemilik, jangan diubah tanpa izin.
+  Kartu tersembunyi bawaan; tampil lewat tombol ＋ di header (⌘N), Esc / ＋ lagi menutup. Tautan
+  **"Isian lengkap…"** (atau ⌥-klik ＋) mengganti kartu cepat dengan form lengkap di tempat (`TodoEditor`
+  todo baru / `ReminderEditor` `compact`), isian cepat ikut terbawa; Batal = kembali ke kartu cepat.
 - Aksi alternatif mengikuti pola macOS: tahan ⌥ untuk menampilkan aksi kedua (mis. ○ selesai → ✎
   ubah, menu Salin → Salin judul saja), selalu dengan jalan lain yang mudah ditemukan (klik dua kali, klik kanan).
 - Salin todo = teks polos "Judul" + baris kosong + detail (`TodoCopy` di Mac, `web/src/copy.js`), selalu dengan

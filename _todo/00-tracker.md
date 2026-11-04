@@ -196,6 +196,13 @@ Rancangan: [`../docs/PRD.md`](../docs/PRD.md). Perbarui setiap tugas selesai.
       Filter Selesai tetap urut waktu selesai
 - [ ] Uji manual: klik kanan filter → Kategori, Pengaturan → Umum, di Mac sungguhan
 
+- [x] 0.12.0: popover Mac — **tambah cepat di tab Pengingat** (＋ / ⌘N: judul + Kapan Hari ini/Besok/Lusa/Tiap hari
+      + time picker), jam di kartu tambah todo kini **time picker** (centang "Jam") bukan ketik HH:MM, dan
+      **"Isian lengkap…"** (atau ⌥-klik ＋) di kedua tab: form lengkap di tempat kartu (todo: detail, kategori,
+      prioritas, tanggal & jam picker; pengingat: pesan/detail, todo terkait, jadwal sekali/harian/mingguan/bulanan).
+      "Pengingat baru…" di daftar kini membuka form ini (bukan lembar Pengaturan)
+- [ ] Uji manual di Mac sungguhan: ＋ / ⌘N / ⌥-klik ＋ / Esc di tab Todo & Pengingat, isian lengkap, picker jam
+
 ## Berikutnya
 
 - [x] 0.11.0: pembaruan aplikasi Mac lewat server (`/api/app/mac/*`, token GitHub read-only di `.env`) — repo private tetap bisa update
