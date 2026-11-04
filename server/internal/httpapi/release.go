@@ -1,0 +1,80 @@
+package httpapi
+
+import (
+	"errors"
+	"log"
+	"net/http"
+	"strconv"
+	"time"
+
+	"aitodo/server/internal/release"
+)
+
+// Pembaruan aplikasi Mac lewat server: repo GitHub boleh private, token-nya hanya
+// ada di server (GITHUB_RELEASE_TOKEN). Wajib login (token perangkat / cookie),
+// jadi file rilis tidak terbuka untuk umum. Keaslian file tetap dicek di Mac lewat
+// tanda tangan Ed25519 — server ini hanya perantara.
+
+func (s *Server) releaseRoutes() {
+	m := s.Mux
+	m.HandleFunc("GET /api/app/mac/latest", s.authed(s.macLatest))
+	m.HandleFunc("GET /api/app/mac/download/{name}", s.authed(s.macDownload))
+}
+
+func releaseErr(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, release.ErrDisabled):
+		writeErr(w, http.StatusNotImplemented, err.Error())
+	case errors.Is(err, release.ErrNoRelease), errors.Is(err, release.ErrNoAsset):
+		writeErr(w, http.StatusNotFound, err.Error())
+	default:
+		log.Printf("rilis: %v", err)
+		writeErr(w, http.StatusBadGateway, "server gagal menghubungi GitHub, coba lagi nanti")
+	}
+}
+
+func (s *Server) macLatest(w http.ResponseWriter, r *http.Request) {
+	info, err := s.Release.Latest(r.Context())
+	if err != nil {
+		releaseErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, info)
+}
+
+func (s *Server) macDownload(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	known := false
+	for _, a := range release.Assets {
+		known = known || a == name
+	}
+	if !known {
+		writeErr(w, http.StatusNotFound, release.ErrNoAsset.Error())
+		return
+	}
+	if !s.dlLimit.allow(strconv.FormatInt(userOf(r).ID, 10), 30, time.Hour) {
+		writeErr(w, http.StatusTooManyRequests, "terlalu sering mengunduh, coba lagi nanti")
+		return
+	}
+	// WriteTimeout server (100 detik) terlalu pendek untuk koneksi lambat.
+	http.NewResponseController(w).SetWriteDeadline(time.Now().Add(10 * time.Minute))
+	started := false
+	err := s.Release.Download(r.Context(), name, w, func(size int64) {
+		started = true
+		h := w.Header()
+		h.Set("Content-Type", "application/octet-stream")
+		h.Set("Content-Disposition", `attachment; filename="`+name+`"`)
+		if size >= 0 {
+			h.Set("Content-Length", strconv.FormatInt(size, 10))
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+	if err != nil {
+		if started {
+			// Header sudah terkirim: koneksi diputus, klien melihat unduhan tidak lengkap.
+			log.Printf("rilis: unduh %s terputus: %v", name, err)
+			return
+		}
+		releaseErr(w, err)
+	}
+}

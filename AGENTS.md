@@ -69,6 +69,8 @@ Semua tampilan (aplikasi Mac & web) mengikuti gaya desain Apple (Human Interface
   todo/chat/ingatan pengguna lain.
 - **API key AI hanya dari environment.** Jangan simpan di `settings`, jangan kirim ke klien, jangan
   log. Host provider baru → tambahkan ke `providerDefs` (allowlist) di `internal/ai/client.go`.
+  Sama untuk `GITHUB_RELEASE_TOKEN` (`internal/release`): host tetap api.github.com, hanya file di
+  `release.Assets` yang boleh diteruskan, dan endpoint `/api/app/mac/*` wajib login.
 - **Ingatan** dipindai `core.ScanMemory` sebelum disimpan; jangan melemahkan pola rahasia/injeksi.
 - Semua `/api/` wajib header `X-AITodo: 1`; cookie `HttpOnly + Secure + SameSite=Strict`; CSP
   tanpa `unsafe-*` (jangan pakai `v-html`, script/style inline, atau CDN).

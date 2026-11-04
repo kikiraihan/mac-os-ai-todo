@@ -20,6 +20,7 @@ import (
 	"aitodo/server/internal/core"
 	"aitodo/server/internal/db"
 	"aitodo/server/internal/push"
+	"aitodo/server/internal/release"
 )
 
 const (
@@ -50,9 +51,12 @@ type Server struct {
 	Mux       *http.ServeMux
 	// SystemLog: baris log server terakhir di memori (menu System Log). nil = mati.
 	SystemLog *applog.Ring
+	// Release: rilis aplikasi Mac dari GitHub (release.go). nil = fitur mati.
+	Release *release.Service
 
 	loginLimit *limiter
 	chatLimit  *limiter
+	dlLimit    *limiter
 
 	locMu    sync.Mutex
 	locCache map[string]*time.Location
@@ -60,7 +64,7 @@ type Server struct {
 
 func New(d *db.DB, reg *ai.Registry, p *push.Service, cfg Config) *Server {
 	s := &Server{DB: d, AI: reg, Push: p, Hub: NewHub(), Cfg: cfg, Mux: http.NewServeMux(),
-		loginLimit: newLimiter(), chatLimit: newLimiter(), locCache: map[string]*time.Location{}}
+		loginLimit: newLimiter(), chatLimit: newLimiter(), dlLimit: newLimiter(), locCache: map[string]*time.Location{}}
 	s.Assistant = &assistant.Assistant{DB: d, AI: reg, OnChange: s.Hub.Bump}
 	s.routes()
 	return s
@@ -137,6 +141,7 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/admin/system-logs", s.admin(s.adminSystemLogs))
 
 	s.memoryRoutes()
+	s.releaseRoutes()
 
 	// /api/ lain → 404 JSON (bukan halaman SPA).
 	m.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {

@@ -211,6 +211,13 @@ if case .failure(.server(400, let msg)) = wait({ api.addMemory(target: "notes", 
     check(!msg.isEmpty, "ingatan berisi rahasia ditolak (\(msg))")
 } else { check(false, "ingatan berisi rahasia ditolak") }
 
+// pembaruan aplikasi lewat server: server tes tidak diatur (GITHUB_RELEASE_REPO kosong) → 501 berpesan
+if case .failure(.server(501, let msg)) = wait(api.macRelease) {
+    check(msg.contains("GITHUB_RELEASE_REPO"), "pembaruan lewat server belum diatur → 501")
+} else { check(false, "pembaruan lewat server belum diatur → 501") }
+if case .failure(.server(404, _)) = wait({ api.macDownload("lain.txt", $0) }) { check(true, "unduh file rilis asing ditolak") }
+else { check(false, "unduh file rilis asing ditolak") }
+
 // token dicabut → unauthorized
 _ = wait(api.logout)
 if case .failure(.unauthorized) = wait(api.me) { check(true, "setelah logout token tidak berlaku") } else { check(false, "setelah logout token tidak berlaku") }

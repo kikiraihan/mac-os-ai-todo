@@ -23,6 +23,7 @@ import (
 	"aitodo/server/internal/db"
 	"aitodo/server/internal/httpapi"
 	"aitodo/server/internal/push"
+	"aitodo/server/internal/release"
 	"aitodo/server/internal/scheduler"
 	"aitodo/server/internal/webui"
 )
@@ -144,6 +145,25 @@ func main() {
 		AICallRetentionDays: retention,
 	})
 	srv.SystemLog = systemLog
+
+	// Pembaruan aplikasi Mac lewat server (repo GitHub boleh private). Token hanya dari env.
+	// GITHUB_RELEASE_REPO tidak ada → repo bawaan; diisi kosong → fitur dimatikan.
+	releaseRepo, ok := os.LookupEnv("GITHUB_RELEASE_REPO")
+	if !ok {
+		releaseRepo = "kikiraihan/mac-os-ai-todo"
+	}
+	rel, err := release.New(strings.TrimSpace(releaseRepo), strings.TrimSpace(os.Getenv("GITHUB_RELEASE_TOKEN")))
+	if err != nil {
+		log.Fatalf("rilis: %v", err)
+	}
+	if rel.Repo != "" {
+		state := "tanpa token (hanya repo publik)"
+		if rel.HasToken() {
+			state = "token terpasang"
+		}
+		log.Printf("Rilis aplikasi Mac dari github.com/%s: %s", rel.Repo, state)
+	}
+	srv.Release = rel
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

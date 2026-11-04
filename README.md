@@ -44,6 +44,10 @@ Unduh `AITodo.zip` dari [Releases](https://github.com/kikiraihan/mac-os-ai-todo/
 xattr -cr /Applications/AITodo.app
 ```
 
+Setelah terhubung ke server, pembaruan berikutnya dicek & diunduh **lewat server AI Todo** (repo boleh
+private; server butuh `GITHUB_RELEASE_TOKEN` di `.env`, lihat DEPLOY.md §4). File rilis tetap dicek
+tanda tangan Ed25519-nya di Mac sebelum dipasang.
+
 ```bash
 open /Applications/AITodo.app
 ```
