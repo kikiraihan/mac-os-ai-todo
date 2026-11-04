@@ -2605,6 +2605,7 @@ enum Form {
         left.setContentHuggingPriority(.defaultLow, for: .horizontal)
         left.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         let r = UI.stack([left], vertical: false, spacing: 16)
+        r.distribution = .fill // teks melebar, kontrol selalu rata kanan → semua switch sejajar
         if let control {
             control.setContentHuggingPriority(.required, for: .horizontal)
             control.setContentCompressionResistancePriority(.required, for: .horizontal)
@@ -2669,16 +2670,12 @@ final class FormPage: NSViewController {
     func set(_ sections: [NSView]) {
         view.subviews.forEach { $0.removeFromSuperview() }
         let content = UI.stack([], spacing: 18)
-        content.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(content)
-        NSLayoutConstraint.activate([
-            content.topAnchor.constraint(equalTo: view.topAnchor, constant: 20),
-            content.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 24),
-            content.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
-        ])
+        // Margin lewat edgeInsets, lalu dibungkus scroll: isi yang lebih tinggi dari jendela bisa digulir.
+        content.edgeInsets = NSEdgeInsets(top: 20, left: 24, bottom: 20, right: 24)
+        UI.pin(UI.scroll(content), to: view)
         for s in sections {
             content.addArrangedSubview(s)
-            s.widthAnchor.constraint(equalTo: content.widthAnchor).isActive = true
+            s.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -48).isActive = true
         }
     }
 }
