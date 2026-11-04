@@ -7,6 +7,8 @@
 #   2. backup SQLite dulu (kalau container sedang jalan) — `aitodo backup`
 #      memakai VACUUM INTO, jadi salinannya konsisten walau server sedang menulis
 #   3. git fetch + reset --hard ke origin/<branch>
+#      (dari GitHub Actions: kode dikirim sebagai git bundle lewat SSH, jadi VPS
+#      tidak butuh kredensial GitHub walau repo-nya private)
 #   4. docker compose up -d --build
 #   5. health check ke 127.0.0.1:$APP_PORT/api/health
 #   6. kalau health check gagal -> otomatis rollback ke commit sebelumnya
@@ -17,6 +19,11 @@
 #   HEALTH_DELAY    (default: 2)    jeda detik antar percobaan
 #   SKIP_BACKUP     (default: 0)    set 1 untuk lewati backup DB
 #   NO_ROLLBACK     (default: 0)    set 1 untuk biarkan versi gagal tetap jalan
+#   DEPLOY_BUNDLE   (default: kosong) path git bundle berisi commit yang di-deploy;
+#                   kalau diisi, kode diambil dari bundle ini, bukan `git fetch origin`
+#   DEPLOY_EXPECT_SHA (opsional)    commit yang wajib ada di bundle (pengaman)
+#   DEPLOY_APP_DIR  (opsional)      folder repo di VPS; wajib kalau script ini
+#                   dijalankan dari luar repo (mis. salinan kiriman GitHub Actions)
 #
 set -euo pipefail
 
@@ -26,7 +33,9 @@ set -euo pipefail
 # sana supaya isi script stabil selama deploy berlangsung.
 if [ "${DEPLOY_SELF_COPY:-0}" != "1" ]; then
 	_self="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
-	_root="$(cd "$(dirname "$_self")/.." && pwd)"
+	# DEPLOY_APP_DIR boleh diisi dari luar: GitHub Actions menjalankan salinan
+	# script versi terbaru dari folder sementara, bukan dari dalam repo.
+	_root="${DEPLOY_APP_DIR:-$(cd "$(dirname "$_self")/.." && pwd)}"
 	_copy="$(mktemp -t aitodo-deploy.XXXXXX)"
 	cp "$_self" "$_copy"
 	chmod +x "$_copy"
@@ -103,15 +112,25 @@ fi
 OLD_SHA="$(git rev-parse HEAD)"
 log "Commit saat ini : $(git log -1 --format='%h %s' "$OLD_SHA")"
 
-log "git fetch origin $BRANCH ..."
-if ! git fetch --prune origin "$BRANCH"; then
+if [ -n "${DEPLOY_BUNDLE:-}" ]; then
+	# Kode dikirim GitHub Actions sebagai git bundle (riwayat lengkap, tanpa prasyarat).
+	log "Ambil kode dari bundle kiriman GitHub Actions ..."
+	[ -f "$DEPLOY_BUNDLE" ] || die "Bundle tidak ditemukan: $DEPLOY_BUNDLE"
+	git bundle verify -q "$DEPLOY_BUNDLE" >/dev/null 2>&1 || die "Bundle rusak / tidak valid: $DEPLOY_BUNDLE"
+	git fetch -q "$DEPLOY_BUNDLE" "+HEAD:refs/remotes/origin/$BRANCH" \
+		|| die "Gagal mengambil commit dari bundle."
+	if [ -n "${DEPLOY_EXPECT_SHA:-}" ] && [ "$(git rev-parse "origin/$BRANCH")" != "$DEPLOY_EXPECT_SHA" ]; then
+		die "Isi bundle ($(git rev-parse --short "origin/$BRANCH")) tidak sama dengan commit yang diminta ($DEPLOY_EXPECT_SHA)."
+	fi
+elif ! { log "git fetch origin $BRANCH ..."; git fetch --prune origin "$BRANCH"; }; then
 	remote_url="$(git remote get-url origin 2>/dev/null || echo '?')"
 	warn "git fetch gagal. Remote saat ini: $remote_url"
 	case "$remote_url" in
 		https://*)
 			warn "Remote memakai HTTPS. Kalau repo-nya dijadikan private, server tidak punya kredensial"
 			warn "dan git tidak bisa menanyakannya (deploy jalan non-interaktif)."
-			warn "Solusi: pasang deploy key lalu pindah ke remote SSH — lihat CICD.md langkah A4."
+			warn "Deploy otomatis dari GitHub Actions tidak butuh ini (kode dikirim sebagai bundle)."
+			warn "Untuk 'make deploy' dari VPS: pasang deploy key lalu pindah ke remote SSH — lihat CICD.md langkah A4."
 			;;
 		git@*|ssh://*)
 			ssh_host="${remote_url#git@}"; ssh_host="${ssh_host%%:*}"

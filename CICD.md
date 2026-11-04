@@ -9,10 +9,10 @@ Anda: merge / push ke main (yang mengubah server/, web/, Dockerfile, …)
 GitHub Actions (CI)  → gofmt, go vet, go test -race, npm run build, docker build
         │  (kalau semuanya hijau)
         ▼
-GitHub Actions (Deploy) → SSH ke VPS → ./scripts/deploy.sh
+GitHub Actions (Deploy) → git bundle commit ini + deploy.sh → scp ke VPS → jalankan deploy.sh
         │
         ├─ backup SQLite (aitodo backup, aman saat berjalan) → backups/aitodo-predeploy-<timestamp>.db
-        ├─ git reset --hard origin/main
+        ├─ ambil commit dari bundle → git reset --hard (VPS tidak perlu akses ke GitHub)
         ├─ docker compose up -d --build
         ├─ health check http://127.0.0.1:$APP_PORT/api/health
         └─ kalau health check gagal → ROLLBACK otomatis ke commit sebelumnya
@@ -102,12 +102,15 @@ chmod +x scripts/deploy.sh scripts/rollback.sh
 ls -la .env
 ```
 
-### A4. Akses baca ke GitHub (hanya kalau repo dijadikan private)
+### A4. Akses baca ke GitHub (opsional — hanya untuk `make deploy` dari VPS)
 
-Repo `kikiraihan/mac-os-ai-todo` saat ini **public**, jadi `git fetch` lewat HTTPS tanpa kredensial
-sudah jalan — **lewati langkah ini**.
+**Deploy otomatis tidak butuh langkah ini**, walau repo private: GitHub Actions mengirim commit yang
+di-deploy sebagai `git bundle` lewat SSH yang sama (`DEPLOY_BUNDLE`), jadi VPS tidak pernah
+`git fetch` ke GitHub. `deploy.sh` juga ikut dikirim dan dijalankan dari salinan itu, jadi perubahan
+script langsung berlaku.
 
-Kalau nanti repo dijadikan private, deploy otomatis akan gagal dengan
+Langkah ini hanya perlu kalau Anda ingin `make deploy` / `make deploy-remote` (yang `git fetch`
+langsung dari VPS) tetap jalan saat repo private — tanpanya muncul
 `fatal: could not read Username for 'https://github.com'`. Pasang **deploy key** (SSH read-only khusus
 repo ini), **di VPS sebagai user yang sama dengan `SSH_USER`**:
 
@@ -311,7 +314,13 @@ dan `-----END OPENSSH PRIVATE KEY-----`. Cek juga public key-nya ada di `~/.ssh/
 User SSH belum masuk grup `docker`. Lihat A2.
 
 **`fatal: could not read Username for 'https://github.com'`.**
-Repo sudah dijadikan private. Ikuti A4.
+Repo private dan deploy dijalankan dengan `git fetch` dari VPS (`make deploy` / `make deploy-remote`,
+atau `deploy.yml` versi lama). Deploy dari GitHub Actions versi sekarang tidak terkena ini; untuk
+`make deploy` ikuti A4.
+
+**`Isi bundle (...) tidak sama dengan commit yang diminta`.**
+Bundle yang dikirim Actions bukan commit yang dipicu. Jalankan ulang workflow; kalau terulang, cek
+langkah "Buat git bundle" di log Actions.
 
 **`.env belum ada di ...` atau `ADMIN_PASSWORD di .env masih password contoh`.**
 Ikuti DEPLOY.md §4 di server.

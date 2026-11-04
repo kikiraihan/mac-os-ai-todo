@@ -198,6 +198,7 @@ Rancangan: [`../docs/PRD.md`](../docs/PRD.md). Perbarui setiap tugas selesai.
 
 ## Berikutnya
 
+- [x] Deploy otomatis tanpa kredensial GitHub di VPS: kode dikirim sebagai git bundle lewat SSH (repo private tetap bisa deploy)
 - [x] 0.10.1: pesan gagal cek pembaruan menyebut penyebab sebenarnya (404 repo privat / batas akses / jaringan)
 - [x] 0.10.1: halaman Pengaturan (Umum, Akun, Tentang) bisa digulir; switch & tombol rata kanan
 - [ ] Pemilik: pembaruan otomatis butuh rilis yang bisa dibaca tanpa login (repo publik, atau rilis di repo publik terpisah)
