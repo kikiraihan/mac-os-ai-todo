@@ -2605,6 +2605,7 @@ enum Form {
         left.setContentHuggingPriority(.defaultLow, for: .horizontal)
         left.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         let r = UI.stack([left], vertical: false, spacing: 16)
+        r.distribution = .fill // teks melebar, kontrol selalu rata kanan → semua switch sejajar
         if let control {
             control.setContentHuggingPriority(.required, for: .horizontal)
             control.setContentCompressionResistancePriority(.required, for: .horizontal)
@@ -2669,16 +2670,12 @@ final class FormPage: NSViewController {
     func set(_ sections: [NSView]) {
         view.subviews.forEach { $0.removeFromSuperview() }
         let content = UI.stack([], spacing: 18)
-        content.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(content)
-        NSLayoutConstraint.activate([
-            content.topAnchor.constraint(equalTo: view.topAnchor, constant: 20),
-            content.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 24),
-            content.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
-        ])
+        // Margin lewat edgeInsets, lalu dibungkus scroll: isi yang lebih tinggi dari jendela bisa digulir.
+        content.edgeInsets = NSEdgeInsets(top: 20, left: 24, bottom: 20, right: 24)
+        UI.pin(UI.scroll(content), to: view)
         for s in sections {
             content.addArrangedSubview(s)
-            s.widthAnchor.constraint(equalTo: content.widthAnchor).isActive = true
+            s.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -48).isActive = true
         }
     }
 }
@@ -4230,6 +4227,8 @@ final class Updater: NSObject {
     let menuItem = NSMenuItem(title: "Cek pembaruan…", action: #selector(Updater.checkNow), keyEquivalent: "")
     typealias Release = (version: String, zip: URL?, sig: URL?, page: URL)
     var latest: Release?
+    /// Penyebab pengecekan terakhir gagal (nil kalau berhasil), untuk ditampilkan di alert.
+    var lastError: String?
 
     /// Kunci publik Ed25519 (base64) dari `swift scripts/sign-release.swift keygen`.
     /// Kosong → update selalu lewat halaman rilis (unduh manual), tidak pernah dipasang otomatis.
@@ -4284,8 +4283,20 @@ final class Updater: NSObject {
         var req = URLRequest(url: url)
         req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         req.timeoutInterval = 15
-        URLSession.shared.dataTask(with: req) { data, _, _ in
+        URLSession.shared.dataTask(with: req) { data, resp, err in
             var info: Release?
+            // Simpan penyebab gagal supaya pesan ke pengguna tidak selalu "periksa koneksi internet".
+            let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            var why: String?
+            if err != nil || status == 0 {
+                why = "Tidak bisa terhubung ke GitHub. Periksa koneksi internet, lalu coba lagi."
+            } else if status == 404 {
+                why = "GitHub menjawab 404: repo \(self.repo) privat atau belum punya rilis. Aplikasi hanya bisa mengecek rilis di repo publik."
+            } else if status == 403 || status == 429 {
+                why = "GitHub membatasi pengecekan sementara (HTTP \(status)). Coba lagi nanti."
+            } else if status != 200 {
+                why = "GitHub menjawab HTTP \(status). Coba lagi nanti."
+            }
             if let data, let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let tag = j["tag_name"] as? String,
                let page = (j["html_url"] as? String).flatMap({ URL(string: $0) }) {
@@ -4295,8 +4306,10 @@ final class Updater: NSObject {
                 }
                 info = (tag, asset("\(self.appName).zip"), asset("\(self.appName).zip.sig"), page)
             }
+            if info == nil && why == nil { why = "Jawaban GitHub tidak dikenali. Coba lagi nanti." }
             DispatchQueue.main.async {
                 if let info { self.latest = info }
+                self.lastError = info == nil ? why : nil
                 done(info != nil)
             }
         }.resume()
@@ -4312,7 +4325,7 @@ final class Updater: NSObject {
             NSApp.activate(ignoringOtherApps: true)
             guard ok, let l = self.latest else {
                 a.messageText = "Gagal mengecek pembaruan"
-                a.informativeText = "Periksa koneksi internet, lalu coba lagi."
+                a.informativeText = self.lastError ?? "Periksa koneksi internet, lalu coba lagi."
                 a.runModal()
                 return
             }
