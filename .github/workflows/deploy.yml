@@ -49,6 +49,21 @@ jobs:
       DEPLOY_BRANCH: ${{ github.ref_name }}
       SKIP_BACKUP: ${{ inputs.skip_backup && '1' || '0' }}
     steps:
+      # Kode dikirim dari sini ke VPS sebagai git bundle, jadi VPS tidak perlu
+      # kredensial GitHub (repo private tetap bisa di-deploy).
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # riwayat lengkap → bundle tanpa prasyarat, rollback ke commit lama tetap bisa
+          persist-credentials: false
+
+      - name: Buat git bundle
+        run: |
+          set -euo pipefail
+          git bundle create "$RUNNER_TEMP/aitodo.bundle" HEAD
+          git bundle verify "$RUNNER_TEMP/aitodo.bundle"
+          ls -lh "$RUNNER_TEMP/aitodo.bundle"
+
       - name: Siapkan kunci SSH
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
@@ -75,12 +90,20 @@ jobs:
       - name: Jalankan deploy di VPS
         run: |
           set -euo pipefail
-          ssh -i ~/.ssh/id_deploy -p "$SSH_PORT" \
-              -o IdentitiesOnly=yes \
-              -o BatchMode=yes \
-              -o ConnectTimeout=15 \
-              "$SSH_USER@$SSH_HOST" \
-              "cd '$APP_DIR' && DEPLOY_BRANCH='$DEPLOY_BRANCH' SKIP_BACKUP='$SKIP_BACKUP' ./scripts/deploy.sh"
+          opts=(-i ~/.ssh/id_deploy -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=15)
+          remote="$SSH_USER@$SSH_HOST"
+
+          # Folder sementara di VPS untuk bundle + deploy.sh versi commit ini. Script
+          # dijalankan dari salinan ini (bukan yang di repo VPS) supaya perubahan pada
+          # deploy.sh langsung berlaku, termasuk saat VPS masih memakai versi lama.
+          tmp="$(ssh "${opts[@]}" -p "$SSH_PORT" "$remote" 'mktemp -d -t aitodo-deploy.XXXXXX')"
+          test -n "$tmp" || { echo "Gagal membuat folder sementara di VPS."; exit 1; }
+          scp "${opts[@]}" -P "$SSH_PORT" -q "$RUNNER_TEMP/aitodo.bundle" scripts/deploy.sh "$remote:$tmp/"
+
+          ssh "${opts[@]}" -p "$SSH_PORT" "$remote" \
+              "cd '$APP_DIR' && DEPLOY_APP_DIR=\"\$(pwd)\" DEPLOY_BRANCH='$DEPLOY_BRANCH' SKIP_BACKUP='$SKIP_BACKUP' \
+               DEPLOY_BUNDLE='$tmp/aitodo.bundle' DEPLOY_EXPECT_SHA='$GITHUB_SHA' bash '$tmp/deploy.sh'; \
+               rc=\$?; rm -rf '$tmp'; exit \$rc"
 
       - name: Ringkasan
         if: always()
