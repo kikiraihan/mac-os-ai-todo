@@ -4680,8 +4680,8 @@ final class Updater: NSObject {
                     do { try p.run() } catch { return self.fail(error.localizedDescription, l.page) }
                     NSApp.terminate(nil)
                 }
-            }.resume()
-        }.resume()
+            } // macDownload sudah menjalankan request (raw → dataTask.resume)
+        }
     }
 
     func fail(_ message: String, _ page: URL) {
