@@ -198,6 +198,8 @@ Rancangan: [`../docs/PRD.md`](../docs/PRD.md). Perbarui setiap tugas selesai.
 
 ## Berikutnya
 
+- [x] 0.10.1: pesan gagal cek pembaruan menyebut penyebab sebenarnya (404 repo privat / batas akses / jaringan)
+- [ ] Pemilik: pembaruan otomatis butuh rilis yang bisa dibaca tanpa login (repo publik, atau rilis di repo publik terpisah)
 - [x] Deploy otomatis ke VPS (backup, health check, rollback) — `CICD.md`, diuji dengan docker tiruan
 - [ ] Pemilik: isi secret SSH_* (CICD.md B1) setelah server pertama kali dipasang
 - [ ] Uji dengan API key asli & pilih model default terbaik
