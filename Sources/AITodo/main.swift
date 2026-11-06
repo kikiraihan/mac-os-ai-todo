@@ -2079,11 +2079,17 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         sender.isEnabled = false
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in self?.app.toggleReminder(r) }
     }
-    /// "Pengingat baru…" = kartu tambah di atas daftar (sama dengan ＋), langsung isian lengkap.
+    /// "Pengingat baru…" = kartu tambah cepat di atas daftar (sama dengan ＋, seperti tab Todo);
+    /// form lengkap tetap lewat "Isian lengkap…" di kartu (atau ⌥-klik tautan ini).
+    /// Dari filter Selesai: pindah ke Aktif dulu (kartu tambah tidak tampil di Selesai).
     @objc private func newReminder() {
-        guard !showDone else { return app.editReminder(nil) }
-        if !addCardOpen { setAddCard(open: true) }
-        openAdvanced()
+        let advanced = NSEvent.modifierFlags.contains(.option)
+        if showDone {
+            scope.selectedSegment = 0
+            scopeChanged()
+        }
+        if !addCardOpen { setAddCard(open: true) } else if advancedForm == nil { view.window?.makeFirstResponder(titleField) }
+        if advanced { openAdvanced() }
     }
     @objc private func openReminderSettings() { app.openReminderSettings() }
 
