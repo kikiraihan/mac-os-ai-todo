@@ -1,5 +1,5 @@
 <script setup>
-import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { get, post, del } from '../api'
 import { onRemoteChange, refreshData, toast, errorText } from '../store'
 import { timeAgo } from '../dates'
@@ -57,12 +57,23 @@ async function send(msg) {
   }
 }
 
+// Enter = baris baru (tidak langsung kirim); kirim lewat tombol Kirim.
+// Pintasan keyboard: ⌘+Enter (Mac) / Ctrl+Enter.
 function onKey(e) {
-  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.isComposing) {
     e.preventDefault()
     send()
   }
 }
+
+// Kotak pesan tumbuh mengikuti isi (sampai max-height di CSS), karena Enter kini menambah baris.
+function autoGrow() {
+  const el = input.value
+  if (!el) return
+  el.style.height = 'auto'
+  el.style.height = `${el.scrollHeight + 2}px`
+}
+watch(text, () => nextTick(autoGrow))
 
 function onBatchUpdate(b) {
   batches.value[b.id] = b
@@ -138,8 +149,8 @@ async function older() {
         <button v-for="s in suggestions" :key="s" class="chip" type="button" :disabled="sending" @click="send(s)">{{ s }}</button>
       </div>
       <form class="input-row" @submit.prevent="send()">
-        <textarea ref="input" v-model="text" rows="1" maxlength="2000" :placeholder="touch ? 'Ketik pesan…' : 'Ketik pesan… (Enter kirim, Shift+Enter baris baru)'"
-          :disabled="sending" @keydown="onKey"></textarea>
+        <textarea ref="input" v-model="text" rows="1" maxlength="2000" :placeholder="touch ? 'Ketik pesan…' : 'Ketik pesan… (Enter baris baru, ⌘/Ctrl+Enter kirim)'"
+          enterkeyhint="enter" :disabled="sending" @keydown="onKey"></textarea>
         <button class="btn primary" :disabled="sending || !text.trim()" aria-label="Kirim"><Icon name="send" /></button>
       </form>
     </div>

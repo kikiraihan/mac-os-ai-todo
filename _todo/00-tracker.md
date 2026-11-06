@@ -211,6 +211,8 @@ Rancangan: [`../docs/PRD.md`](../docs/PRD.md). Perbarui setiap tugas selesai.
       lewat) selama belum diubah pengguna. Todo terkait ikut terbawa ke "Isian lengkap…"; setelah Tambah muncul
       "🔔 di todo …" karena pengingat milik todo tampil di baris todo-nya
 - [ ] Uji manual di Mac sungguhan: Todo terkait di kartu cepat Pengingat
+- [x] 0.13.0: PWA chat — **Enter tidak langsung mengirim** (Enter = baris baru, kirim lewat tombol Kirim;
+      pintasan ⌘/Ctrl+Enter). Kotak pesan tumbuh mengikuti isi sampai batas tinggi
 
 ## Berikutnya
 
