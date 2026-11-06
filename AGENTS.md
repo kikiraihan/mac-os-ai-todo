@@ -81,6 +81,9 @@ Semua tampilan (aplikasi Mac & web) mengikuti gaya desain Apple (Human Interface
 - Jadwal pengingat dihitung server (`internal/schedule`), bukan AI. Waktu di database = RFC3339 UTC;
   tampilan memakai zona pengguna (`web/src/dates.js`).
 - Jangan menyalin password contoh dari `.env.example`; server menolak berjalan dengannya.
+- Pembaruan PWA diatur `web/src/update.js` (service worker mode `prompt`, registrasi lewat
+  `virtual:pwa-register`). Jangan kembali ke `injectRegister: 'script'` / `autoUpdate`; `sw.js` & `index.html`
+  harus tetap `Cache-Control: no-cache` (`internal/webui`).
 
 ## Versi
 

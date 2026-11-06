@@ -213,6 +213,12 @@ Rancangan: [`../docs/PRD.md`](../docs/PRD.md). Perbarui setiap tugas selesai.
 - [ ] Uji manual di Mac sungguhan: Todo terkait di kartu cepat Pengingat
 - [x] 0.13.0: PWA chat — **Enter tidak langsung mengirim** (Enter = baris baru, kirim lewat tombol Kirim;
       pintasan ⌘/Ctrl+Enter). Kotak pesan tumbuh mengikuti isi sampai batas tinggi
+- [x] 0.14.0: PWA — **pembaruan tidak lagi telat**. Service worker mode `prompt` + registrasi lewat
+      `virtual:pwa-register` (`web/src/update.js`): cek pembaruan saat dibuka, setiap kembali dari latar belakang
+      (iPhone tidak mengecek sendiri), dan tiap jam; versi baru yang ditemukan ≤15 dtk setelah dibuka langsung dipasang
+      (kecuali sedang mengetik), selain itu toast. Pengaturan → **Pembaruan aplikasi**: versi, Periksa pembaruan,
+      Perbarui sekarang, Muat ulang paksa (hapus cache, SW & langganan push tetap). Diuji Playwright: server 0.14.0 → 0.14.1
+- [ ] Uji manual di iPhone (PWA terpasang): update sampai tanpa tutup-buka berkali-kali
 
 ## Berikutnya
 
