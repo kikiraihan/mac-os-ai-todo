@@ -206,6 +206,11 @@ Rancangan: [`../docs/PRD.md`](../docs/PRD.md). Perbarui setiap tugas selesai.
 - [x] 0.12.2: tab Pengingat popover Mac — tautan "Pengingat baru…" kini membuka **kartu tambah cepat** (sama dengan
       tab Todo / ＋), bukan langsung form lengkap; "Isian lengkap…" tetap di kartu (⌥-klik tautan = langsung form
       lengkap). Dari filter Selesai otomatis pindah ke Aktif (dulu membuka lembar Pengaturan)
+- [x] 0.13.0: kartu tambah cepat tab Pengingat (popover Mac) punya pilihan **Todo terkait**. Memilih todo mengisi
+      judul yang masih kosong dengan judul todo, dan Kapan + jam dengan tenggat todo (hari ini/besok/lusa, jam belum
+      lewat) selama belum diubah pengguna. Todo terkait ikut terbawa ke "Isian lengkap…"; setelah Tambah muncul
+      "🔔 di todo …" karena pengingat milik todo tampil di baris todo-nya
+- [ ] Uji manual di Mac sungguhan: Todo terkait di kartu cepat Pengingat
 
 ## Berikutnya
 

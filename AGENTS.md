@@ -43,7 +43,8 @@ Semua tampilan (aplikasi Mac & web) mengikuti gaya desain Apple (Human Interface
   (klik di mana saja membuka picker — `web/src/pickers.js`), Mac memakai `NSDatePicker` (kalender
   `presentsCalendarOverlay`, jam `.hourMinute`). Kartu tambah cepat di tab Todo & Pengingat popover Mac:
   dropdown Kapan (Hari ini/Besok/Lusa; Todo + "Tanpa tenggat", Pengingat + "Tiap hari") + **time picker**
-  (Todo: opsional lewat centang "Jam") — dropdown hari ini disengaja pemilik, jangan diubah tanpa izin.
+  (Todo: opsional lewat centang "Jam"); Pengingat juga punya pilihan **Todo terkait** (judul kosong / Kapan & jam
+  yang belum diubah menyesuaikan todo itu) — dropdown hari ini disengaja pemilik, jangan diubah tanpa izin.
   Kartu tersembunyi bawaan; tampil lewat tombol ＋ di header (⌘N), Esc / ＋ lagi menutup. Tautan
   **"Isian lengkap…"** (atau ⌥-klik ＋) mengganti kartu cepat dengan form lengkap di tempat (`TodoEditor`
   todo baru / `ReminderEditor` `compact`), isian cepat ikut terbawa; Batal = kembali ke kartu cepat.
