@@ -203,6 +203,9 @@ Rancangan: [`../docs/PRD.md`](../docs/PRD.md). Perbarui setiap tugas selesai.
       "Pengingat baru…" di daftar kini membuka form ini (bukan lembar Pengaturan)
 - [ ] Uji manual di Mac sungguhan: ＋ / ⌘N / ⌥-klik ＋ / Esc di tab Todo & Pengingat, isian lengkap, picker jam
 - [x] 0.12.1: perbaikan build Mac (rusak sejak 0.11.0): `.resume()` berlebih setelah `macDownload` di `Updater.install`
+- [x] 0.12.2: tab Pengingat popover Mac — tautan "Pengingat baru…" kini membuka **kartu tambah cepat** (sama dengan
+      tab Todo / ＋), bukan langsung form lengkap; "Isian lengkap…" tetap di kartu (⌥-klik tautan = langsung form
+      lengkap). Dari filter Selesai otomatis pindah ke Aktif (dulu membuka lembar Pengaturan)
 
 ## Berikutnya
 
