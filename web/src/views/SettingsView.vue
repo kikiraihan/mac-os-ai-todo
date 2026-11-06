@@ -1,11 +1,12 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { get, post, put, del } from '../api'
 import { state, toast, errorText, logout, loadMe } from '../store'
 import { timeAgo } from '../dates'
 import Icon from '../components/Icon.vue'
 import { pushState as readPushState, enablePush as turnOnPush, disablePush as turnOffPush, syncPush } from '../push'
+import { appVersion, update, checkUpdate, applyUpdate, forceReload, serverNewer } from '../update'
 
 const router = useRouter()
 const displayName = ref(state.me.displayName)
@@ -20,6 +21,20 @@ const pushState = ref('unknown') // unsupported | denied | off | on
 const zones = typeof Intl.supportedValuesOf === 'function' ? Intl.supportedValuesOf('timeZone') : ['Asia/Jakarta', 'Asia/Makassar', 'Asia/Jayapura']
 const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent)
 const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone
+
+// Pembaruan aplikasi (logika di ../update.js)
+const hasUpdate = computed(() => update.available || serverNewer())
+const updateText = computed(() => {
+  if (update.applying) return 'Memperbarui…'
+  if (update.checking) return 'Memeriksa…'
+  if (hasUpdate.value) return 'Versi baru tersedia'
+  return update.lastCheck ? 'Terbaru' : 'Belum diperiksa'
+})
+
+async function checkNow() {
+  await checkUpdate()
+  if (!hasUpdate.value) toast('Aplikasi sudah versi terbaru')
+}
 
 async function loadSessions() {
   const res = await get('/sessions')
@@ -238,6 +253,21 @@ onMounted(() => {
           </tbody>
         </table>
       </div>
+    </section>
+
+    <section class="card">
+      <h3>Pembaruan aplikasi</h3>
+      <p class="muted small">
+        Versi {{ appVersion }}<template v-if="serverNewer()"> · server sudah {{ update.serverVersion }}</template>
+      </p>
+      <div class="row">
+        <span class="tag" :class="hasUpdate ? 'accent' : (update.lastCheck ? 'ok' : '')">{{ updateText }}</span>
+        <button v-if="hasUpdate" class="btn primary sm" :disabled="update.applying" @click="applyUpdate">Perbarui sekarang</button>
+        <button v-else class="btn sm" :disabled="update.checking || update.applying" @click="checkNow">Periksa pembaruan</button>
+        <button class="btn sm" :disabled="update.applying" @click="forceReload">Muat ulang paksa</button>
+      </div>
+      <p class="hint">Pembaruan diperiksa otomatis setiap aplikasi dibuka. Kalau tampilan masih terasa versi lama,
+        pakai <b>Muat ulang paksa</b>: cache aplikasi dihapus, login, data, dan notifikasi tetap.</p>
     </section>
   </div>
 </template>
