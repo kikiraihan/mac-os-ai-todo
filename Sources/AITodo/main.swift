@@ -985,6 +985,7 @@ enum UI {
 ///
 /// Tab Pengingat (pengingat tanpa todo; pengingat milik todo = 🔔 di baris todo-nya):
 ///   │ ┌ Judul pengingat…                  ┐ │  ← kartu tambah cepat (＋ / ⌘N), sama dengan tab Todo
+///   │ │ Todo [Tanpa todo              ▾] │ │     todo terkait: judul kosong → judul todo, Kapan/jam → tenggatnya
 ///   │ │ Hari ini ▾  [10.00⇅]      [Tambah] │ │     Kapan: Hari ini / Besok / Lusa / Tiap hari
 ///   │ └                     Isian lengkap… ┘ │  ← pesan, todo terkait, jadwal (sekali/harian/mingguan/bulanan)
 ///   │ [ Aktif 2 | Selesai ]                 │
@@ -1074,6 +1075,14 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
     private let timeCheck = NSButton(checkboxWithTitle: "Jam", target: nil, action: nil)
     private let timePicker = NSDatePicker()
     private lazy var addButton = button("Tambah", #selector(addManual))
+    /// Tab Pengingat: todo terkait (pengingatnya tampil sebagai 🔔 di baris todo itu); tag 0 = tanpa todo.
+    private let quickTodoPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private lazy var quickTodoRow = UI.stack([UI.label("Todo", size: 11, color: .secondaryLabelColor), quickTodoPopup],
+                                             vertical: false, spacing: 8)
+    /// Judul yang diisi otomatis dari todo terkait (diganti lagi bila todo lain dipilih, selama belum diubah).
+    private var quickAutoTitle: String?
+    /// Kapan / jam sudah diubah pengguna → tidak ditimpa saat memilih todo terkait.
+    private var quickWhenEdited = false
     private let addError = UI.label("", size: 11, color: Theme.danger)
     /// "Isian lengkap…": ganti kartu cepat dengan form lengkap (detail, kategori, prioritas, tanggal, jadwal…).
     private lazy var advancedButton: NSButton = {
@@ -1493,8 +1502,15 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         titleField.setAccessibilityLabel("Judul todo baru")
         duePopup.controlSize = .small
         duePopup.target = self
-        duePopup.action = #selector(quickWhenChanged)
+        duePopup.action = #selector(quickWhenPicked)
         duePopup.setAccessibilityLabel("Kapan")
+        quickTodoPopup.controlSize = .small
+        quickTodoPopup.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        quickTodoPopup.target = self
+        quickTodoPopup.action = #selector(quickTodoPicked)
+        quickTodoPopup.setAccessibilityLabel("Todo terkait")
+        quickTodoPopup.toolTip = "Todo terkait: pengingatnya tampil sebagai 🔔 di baris todo itu. Judul kosong = diisi judul todo."
+        quickTodoPopup.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         // Jam: time picker 24 jam (ketik angka atau pakai panah), sama dengan kartu ubah
         timeCheck.controlSize = .small
         timeCheck.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
@@ -1513,6 +1529,8 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         timePicker.datePickerStyle = .textFieldAndStepper
         timePicker.datePickerElements = .hourMinute
         timePicker.setAccessibilityLabel("Jam")
+        timePicker.target = self
+        timePicker.action = #selector(quickTimePicked)
         addButton.bezelColor = Theme.accent
         addError.isHidden = true
         scope.controlSize = .small
@@ -1526,6 +1544,7 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         }
 
         //   ┌ Judul…                                   ┐
+        //   │ Todo [Tanpa todo                      ▾] │  ← hanya tab Pengingat
         //   │ [Hari ini ▾]  ☑ Jam [09.00 ⇅]    [Tambah] │
         //   └ pesan galat              Isian lengkap… ┘
         let opts = UI.stack([duePopup, timeCheck, timePicker, NSView(), addButton], vertical: false, spacing: 8)
@@ -1533,9 +1552,9 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         let foot = UI.stack([addError, NSView(), advancedButton], vertical: false, spacing: 8)
         addError.lineBreakMode = .byTruncatingTail
         addError.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        let form = UI.stack([titleField, opts, foot], spacing: 6)
+        let form = UI.stack([titleField, quickTodoRow, opts, foot], spacing: 6)
         form.setCustomSpacing(8, after: titleField)
-        for v in [titleField, opts, foot] as [NSView] { v.widthAnchor.constraint(equalTo: form.widthAnchor).isActive = true }
+        for v in [titleField, quickTodoRow, opts, foot] as [NSView] { v.widthAnchor.constraint(equalTo: form.widthAnchor).isActive = true }
         let card = addCard
         card.addSubview(form)
         UI.pin(form, to: card, top: 10, left: 10, bottom: 8, right: 10)
@@ -1634,6 +1653,58 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         timePicker.dateValue = reminders ? start : (Clock.due(Clock.ymd(Date(), store.tz), "09:00", store.tz) ?? start)
         timeCheck.state = .off
         timeCheck.isHidden = reminders
+        quickWhenEdited = false
+        quickAutoTitle = nil
+        quickTodoRow.isHidden = !reminders
+        if reminders { fillQuickTodos() }
+        quickWhenChanged()
+    }
+
+    /// Isi pilihan todo terkait: todo terbuka, urut abjad (sama dengan form lengkap).
+    private func fillQuickTodos() {
+        quickTodoPopup.removeAllItems()
+        quickTodoPopup.addItem(withTitle: "Tanpa todo")
+        quickTodoPopup.lastItem?.tag = 0
+        for t in store.todos.sorted(by: { $0.title.localizedCompare($1.title) == .orderedAscending }) {
+            quickTodoPopup.addItem(withTitle: t.title)
+            quickTodoPopup.lastItem?.tag = Int(t.id)
+        }
+        quickTodoPopup.selectItem(withTag: 0)
+    }
+
+    @objc private func quickWhenPicked() {
+        quickWhenEdited = true
+        quickWhenChanged()
+    }
+
+    @objc private func quickTimePicked() { quickWhenEdited = true }
+
+    /// Pilih todo terkait → isian yang masih kosong / belum diubah menyesuaikan todo:
+    /// judul = judul todo; Kapan & jam = tenggat todo (bila hari ini / besok / lusa dan jamnya belum lewat).
+    @objc private func quickTodoPicked() {
+        let id = Int64(quickTodoPopup.selectedTag())
+        let current = titleField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let t = store.todos.first(where: { $0.id == id }) else {
+            // Kembali ke "Tanpa todo": judul otomatis ikut dikosongkan
+            if let auto = quickAutoTitle, current == auto { titleField.stringValue = "" }
+            quickAutoTitle = nil
+            return
+        }
+        if current.isEmpty || current == quickAutoTitle {
+            titleField.stringValue = t.title
+            quickAutoTitle = t.title
+        }
+        guard !quickWhenEdited, !t.dueDate.isEmpty else { return }
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = store.tz
+        guard let offset = (0...2).first(where: {
+            Clock.ymd(cal.date(byAdding: .day, value: $0, to: Date()) ?? Date(), store.tz) == t.dueDate
+        }) else { return }
+        let time = t.dueTime.isEmpty ? Clock.hm(timePicker.dateValue, store.tz) : t.dueTime
+        // Jam tenggat sudah lewat (mis. terlambat hari ini) → biarkan jam bawaan
+        guard let at = Clock.due(t.dueDate, time, store.tz), at > Date() else { return }
+        duePopup.selectItem(withTag: offset)
+        timePicker.dateValue = at
         quickWhenChanged()
     }
 
@@ -1690,7 +1761,7 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
             let date = quickDate().isEmpty ? Clock.ymd(Date(), store.tz) : quickDate()
             let daily = duePopup.selectedTag() == PopoverController.dailyTag
             let draft = ReminderEditor.Draft(title: title, start: Clock.due(date, time, store.tz) ?? Date(),
-                                             kind: daily ? "daily" : "once")
+                                             kind: daily ? "daily" : "once", todoId: Int64(quickTodoPopup.selectedTag()))
             let e = ReminderEditor(reminder: nil, todos: store.todos, tz: store.tz, compact: true, draft: draft)
             e.onCancel = { [weak self] in self?.closeAdvanced(focus: true) }
             e.onSave = { [weak self, weak e] body in
@@ -2383,8 +2454,21 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         let time = Clock.hm(timePicker.dateValue, store.tz)
         if mode == .reminders {
             let daily = duePopup.selectedTag() == PopoverController.dailyTag
+            let todoID = Int64(quickTodoPopup.selectedTag())
+            let todo = store.todos.first { $0.id == todoID }
+            if titleField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, let todo {
+                titleField.stringValue = todo.title // judul kosong = judul todo terkait
+            }
             addButton.isEnabled = false
-            app.createReminder(title: titleField.stringValue, date: daily ? nil : quickDate(), time: time, done: done)
+            app.createReminder(title: titleField.stringValue, date: daily ? nil : quickDate(), time: time,
+                               todoId: todo?.id ?? 0) { [weak self] err in
+                done(err)
+                guard err == nil, let self, let todo else { return }
+                // Pengingat milik todo tidak tampil di tab ini, tapi sebagai 🔔 di baris todo-nya
+                self.quickTodoPopup.selectItem(withTag: 0)
+                self.quickAutoTitle = nil
+                self.flashStatus("Pengingat ditambahkan · 🔔 di todo “\(todo.title)”")
+            }
             return
         }
         let hasTime = duePopup.selectedTag() >= 0 && timeCheck.state == .on
@@ -3727,6 +3811,8 @@ final class ReminderEditor: NSView, NSTextFieldDelegate {
         var title: String
         var start: Date
         var kind: String
+        /// Todo terkait dari kartu cepat (0 = tanpa todo).
+        var todoId: Int64 = 0
     }
     let reminder: Reminder?
     let tz: TimeZone
@@ -3814,7 +3900,7 @@ final class ReminderEditor: NSView, NSTextFieldDelegate {
             todoPopup.addItem(withTitle: t.title)
             todoPopup.lastItem?.tag = Int(t.id)
         }
-        todoPopup.selectItem(withTag: Int(r?.todoId ?? 0))
+        todoPopup.selectItem(withTag: Int(r?.todoId ?? draft?.todoId ?? 0))
         todoPopup.target = self
         todoPopup.action = #selector(todoPicked)
         todoPopup.setAccessibilityLabel("Todo terkait")
@@ -5029,7 +5115,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Tambah pengingat cepat dari tab Pengingat: date = YYYY-MM-DD (sekali) atau nil (tiap hari), time = HH:MM.
     /// Jadwal tetap dihitung server (internal/schedule).
-    func createReminder(title: String, date: String?, time: String, done: @escaping (String?) -> Void) {
+    func createReminder(title: String, date: String?, time: String, todoId: Int64 = 0, done: @escaping (String?) -> Void) {
         let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { return done("Isi judul pengingat dulu.") }
         var s = ReminderSchedule(kind: date == nil ? "daily" : "once")
@@ -5042,7 +5128,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             s.time = time
             s.every = 1
         }
-        createReminder(["title": t, "message": "", "todoId": 0, "schedule": s.body], done: done)
+        createReminder(["title": t, "message": "", "todoId": todoId, "schedule": s.body], done: done)
     }
 
     /// Tambah pengingat (body sama dengan lembar Pengaturan → Pengingat baru).
