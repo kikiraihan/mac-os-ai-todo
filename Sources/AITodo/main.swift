@@ -1848,6 +1848,8 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
     }
 
     private func rebuildList() {
+        // Baris lama dibuang → tombol Detail yang jadi jangkar pratinjau ikut lepas; pasang ulang setelah dibangun.
+        defer { reanchorDetail() }
         listStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         checkButtons = []
         rowViews = [:]
@@ -2338,18 +2340,43 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
     }
 
     private func showDetail(_ t: Todo, from anchor: NSView) {
-        detailPopover?.close()
+        closeDetail()
         let vc = DetailPreview(todo: t, tz: store.tz)
         let p = NSPopover()
         p.behavior = .transient
         p.contentViewController = vc
-        vc.onEdit = { [weak self, weak p] in
-            p?.close()
+        p.delegate = self
+        vc.onEdit = { [weak self] in
+            self?.closeDetail()
             self?.beginEdit(t.id)
         }
         vc.onCopied = { [weak self] in self?.flashStatus("Judul & detail disalin") }
         detailPopover = p
         p.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)
+    }
+
+    /// Tutup pratinjau detail (bila terbuka).
+    private func closeDetail() {
+        let p = detailPopover
+        detailPopover = nil
+        p?.close()
+    }
+
+    /// Daftar dibangun ulang (sinkron dari perangkat lain, ganti tab/filter) saat pratinjau terbuka: tombol
+    /// jangkarnya sudah dibuang dari jendela. Popover dengan jangkar yatim bisa menggantung dan menahan klik
+    /// di popover utama — jadi pindahkan ke tombol Detail baris yang baru, atau tutup bila todo-nya tidak
+    /// tampil lagi / sudah berubah.
+    private func reanchorDetail() {
+        guard let p = detailPopover else { return }
+        guard p.isShown, let vc = p.contentViewController as? DetailPreview, let t = findTodo(vc.todo.id), t == vc.todo,
+              let row = rowViews[t.id], let b = detailButton(in: row), b.window != nil else { return closeDetail() }
+        p.show(relativeTo: b.bounds, of: b, preferredEdge: .minY) // popover yang sedang tampil hanya pindah jangkar
+    }
+
+    private func detailButton(in v: NSView) -> NSButton? {
+        if let b = v as? NSButton, b.action == #selector(detailClicked(_:)) { return b }
+        for s in v.subviews { if let b = detailButton(in: s) { return b } }
+        return nil
     }
 
     private func styleCheck(_ b: NSButton, _ t: Todo) {
@@ -2538,6 +2565,12 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         configureScope()
         updateAddCard()
         storeChanged()
+    }
+
+    /// Popover utama tertutup: pratinjau detail ikut ditutup (jangan tertinggal melayang tanpa induk).
+    override func viewWillDisappear() {
+        super.viewWillDisappear()
+        closeDetail()
     }
 
     /// Popover baru tampil: fokus ke input & muat riwayat chat terbaru.
@@ -2834,6 +2867,14 @@ final class TodoEditor: NSView, NSTextFieldDelegate, NSComboBoxDelegate {
 }
 
 // MARK: Input chat: ↩ kirim, ⇧↩ baris baru
+
+extension PopoverController: NSPopoverDelegate {
+    /// Pratinjau detail tertutup: kembalikan fokus ke popover utama supaya kliknya langsung bekerja lagi.
+    func popoverDidClose(_ notification: Notification) {
+        if let p = notification.object as? NSPopover, p === detailPopover { detailPopover = nil }
+        if let w = view.window, w.isVisible, !w.isKeyWindow { w.makeKey() }
+    }
+}
 
 extension PopoverController: NSTextFieldDelegate {
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
