@@ -279,6 +279,10 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     weak var store: Store?
     var openApp: (() -> Void)?
     static let ourPrefixes = ["rem-", "due-"]
+    /// Rencana terakhir yang sudah dijadwalkan: rencana sama → tidak perlu bertanya ke Notification Center lagi
+    /// (sinkron / percobaan ulang saat offline memanggil `sync` berkali-kali dengan isi yang sama).
+    private var lastPlan: [PlannedNotification]?
+    private var lastPlanAt = Date.distantPast
 
     func setup() {
         center.delegate = self
@@ -299,6 +303,10 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
 
     /// Samakan notifikasi terjadwal dengan rencana: yang hilang dicabut, yang baru ditambah.
     func sync(_ plan: [PlannedNotification]) {
+        // Tetap dicocokkan ulang paling lambat tiap 15 menit, untuk berjaga-jaga bila jadwal diubah dari luar.
+        if plan == lastPlan && Date().timeIntervalSince(lastPlanAt) < 15 * 60 { return }
+        lastPlan = plan
+        lastPlanAt = Date()
         let wanted = Dictionary(plan.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         center.getPendingNotificationRequests { [weak self] pending in
             guard let self else { return }
@@ -325,6 +333,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     }
 
     func clearAll() {
+        lastPlan = nil
         center.getPendingNotificationRequests { [weak self] pending in
             let ours = pending.map(\.identifier).filter { id in Notifier.ourPrefixes.contains { id.hasPrefix($0) } }
             self?.center.removePendingNotificationRequests(withIdentifiers: ours)
@@ -1123,6 +1132,8 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
     private var detailPopover: NSPopover?
     /// Baris todo yang tampil (id → baris), jangkar pratinjau dari menu klik kanan.
     private var rowViews: [Int64: NSView] = [:]
+    /// Store berubah selama popover tertutup → daftar perlu dibangun ulang sebelum tampil lagi.
+    private var listStale = true
 
     init(app: AppDelegate) {
         self.app = app
@@ -2544,17 +2555,31 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         }
         syncLabel.stringValue = app.syncStatus
         if online {
-            // Selama mengubah, daftar tidak dibangun ulang (isi kartu ubah tidak boleh hilang karena sinkron),
-            // kecuali todo yang diubah sudah tidak ada (selesai / dihapus di perangkat lain).
-            if let editor, store.todos.contains(where: { $0.id == editor.todo.id }) {
-                updateScopeLabels(store.buckets)
-            } else {
-                editor = nil
-                rebuildList()
-                if mode == .todo && showDone { loadDone() } // todo bisa selesai/dibuka lagi di perangkat lain
-            }
+            // Hemat sumber daya: popover tertutup → daftar tidak digambar ulang di latar (bisa ratusan baris
+            // setiap sinkron); cukup ditandai, lalu dibangun sekali tepat sebelum popover tampil (`willShow`).
+            if view.window?.isVisible == true { refreshList() } else { listStale = true }
         }
         updateControls()
+    }
+
+    /// Bangun ulang daftar mengikuti store (dipanggil saat popover terlihat, atau dari `willShow`).
+    private func refreshList() {
+        listStale = false
+        // Selama mengubah, daftar tidak dibangun ulang (isi kartu ubah tidak boleh hilang karena sinkron),
+        // kecuali todo yang diubah sudah tidak ada (selesai / dihapus di perangkat lain).
+        if let editor, store.todos.contains(where: { $0.id == editor.todo.id }) {
+            updateScopeLabels(store.buckets)
+        } else {
+            editor = nil
+            rebuildList()
+            if mode == .todo && showDone { loadDone() } // todo bisa selesai/dibuka lagi di perangkat lain
+        }
+    }
+
+    /// Tepat sebelum popover tampil: lengkapi perubahan yang ditunda selama popover tertutup.
+    func willShow() {
+        _ = view
+        if listStale && store.connected { refreshList() }
     }
 
     func select(_ m: Mode) {
@@ -4936,6 +4961,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let button = statusItem.button else { return }
         if let mode { panel.select(mode) }
         NSApp.activate(ignoringOtherApps: true)
+        if !popover.isShown { panel.willShow() }
         if !popover.isShown { popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY) }
         popover.contentViewController?.view.window?.makeKey()
         panel.didShow()

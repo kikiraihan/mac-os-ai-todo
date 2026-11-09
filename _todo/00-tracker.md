@@ -224,6 +224,11 @@ Rancangan: [`../docs/PRD.md`](../docs/PRD.md). Perbarui setiap tugas selesai.
       Kini pratinjau dipindah ke tombol Detail baris baru (atau ditutup bila todo berubah/hilang), ikut ditutup saat
       popover utama ditutup, dan fokus dikembalikan ke popover utama setelah pratinjau tertutup
 - [ ] Uji manual di Mac sungguhan: buka Detail lalu tunggu sinkron / ubah todo dari web — popover tetap bisa diklik
+- [x] 0.14.2: aplikasi menu bar Mac lebih hemat — selama popover tertutup, daftar todo tidak lagi digambar ulang di
+      setiap sinkron (ditandai, lalu dibangun sekali sebelum popover tampil); jadwal notifikasi yang isinya sama tidak
+      dicocokkan ulang ke Notification Center (tetap dicek ulang paling lambat tiap 15 menit). Long-poll (25 dtk) &
+      timer 15 menit sudah hemat, tidak diubah
+- [ ] Uji manual di Mac sungguhan: ubah todo dari web saat popover tertutup → buka popover, daftar sudah terbaru
 
 ## Berikutnya
 
