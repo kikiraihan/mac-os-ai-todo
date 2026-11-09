@@ -229,6 +229,11 @@ Rancangan: [`../docs/PRD.md`](../docs/PRD.md). Perbarui setiap tugas selesai.
       dicocokkan ulang ke Notification Center (tetap dicek ulang paling lambat tiap 15 menit). Long-poll (25 dtk) &
       timer 15 menit sudah hemat, tidak diubah
 - [ ] Uji manual di Mac sungguhan: ubah todo dari web saat popover tertutup → buka popover, daftar sudah terbaru
+- [x] 0.15.0: popover Mac tab Pengingat — filter **Hari ini | Semua | Selesai** (seperti tab Todo, menggantikan
+      Aktif | Selesai). Hari ini = pengingat tanpa todo yang berbunyi hari ini (kosong → tautan "Lihat N pengingat
+      lainnya"); Semua = semua pengingat aktif, termasuk milik todo (🔔 judul todo), dikelompokkan per hari lalu
+      "Tanpa jadwal". Pilihan lama Selesai tetap diingat (kunci prefs baru `reminderFilter`)
+- [ ] Uji manual di Mac sungguhan: tab Pengingat → Semua menampilkan pengingat besok & milik todo
 
 ## Berikutnya
 
