@@ -54,7 +54,8 @@ Semua tampilan (aplikasi Mac & web) mengikuti gaya desain Apple (Human Interface
   umpan balik singkat ("Judul & detail disalin"). Di popover Mac: klik teks = salin, ikon ○ = selesai, klik dua kali = ubah.
 - Popover Mac: tab **Chat | Todo | Pengingat**; filter "Selesai" selalu paling ujung (✓ di sana = batalkan selesai).
   Daftar todo dikelompokkan menurut Waktu (bawaan) atau Kategori — klik kanan filter / Pengaturan → Umum.
-  Pengingat milik todo = ikon 🔔 di baris todo; tab Pengingat hanya pengingat tanpa todo; kelola lengkap di
+  Pengingat milik todo = ikon 🔔 di baris todo; tab Pengingat (Hari ini | Semua | Selesai) hanya pengingat tanpa
+  todo, kecuali filter Semua = semua pengingat aktif per hari (termasuk milik todo); kelola lengkap di
   Pengaturan → Pengingat.
 - **HP (web ≤760px / layar sentuh)**: menu di atas (segmented control), judul besar, tombol utama =
   ikon bulat, area ketuk ≥40px, input ≥16px (Safari tidak zoom). Aksi baris lewat **gestur geser**
