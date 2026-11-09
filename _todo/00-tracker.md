@@ -219,6 +219,11 @@ Rancangan: [`../docs/PRD.md`](../docs/PRD.md). Perbarui setiap tugas selesai.
       (kecuali sedang mengetik), selain itu toast. Pengaturan → **Pembaruan aplikasi**: versi, Periksa pembaruan,
       Perbarui sekarang, Muat ulang paksa (hapus cache, SW & langganan push tetap). Diuji Playwright: server 0.14.0 → 0.14.1
 - [ ] Uji manual di iPhone (PWA terpasang): update sampai tanpa tutup-buka berkali-kali
+- [x] 0.14.1: popover Mac — pratinjau **Detail** kadang membuat popover utama macet (tidak bisa diklik). Penyebab:
+      daftar dibangun ulang (sinkron / ganti filter) saat pratinjau terbuka → tombol jangkarnya lepas dari jendela.
+      Kini pratinjau dipindah ke tombol Detail baris baru (atau ditutup bila todo berubah/hilang), ikut ditutup saat
+      popover utama ditutup, dan fokus dikembalikan ke popover utama setelah pratinjau tertutup
+- [ ] Uji manual di Mac sungguhan: buka Detail lalu tunggu sinkron / ubah todo dari web — popover tetap bisa diklik
 
 ## Berikutnya
 
