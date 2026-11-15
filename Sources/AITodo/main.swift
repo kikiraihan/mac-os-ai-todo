@@ -4,7 +4,8 @@
 //   • Klik ikon = popover: tab Chat (gaya Claude: gelembung pengguna di kanan, jawaban AI penuh lebar)
 //     + contoh pertanyaan (chip kaca yang bisa digeser, klik = langsung kirim)
 //     dan tab Manual (tambah todo, klik lingkaran = tandai selesai; filter Hari ini | Semua;
-//     ubah todo: tahan ⌥ lalu klik ✎, klik dua kali judul, atau klik kanan → Ubah…);
+//     ubah todo: tahan ⌥ lalu klik ✎, klik dua kali judul, atau klik kanan → Ubah…;
+//     urutkan todo / pengingat: tahan ⌃ lalu seret ≡, atau klik kanan → Urutkan — disimpan di Mac ini);
 //     ⌥⌘T buka / tutup popover
 //   • Konfirmasi / undo aksi asisten; klik kanan ikon = menu singkat (Pengaturan, Keluar)
 //   • Jendela Pengaturan terpisah (tab Umum, Todo, Akun, Ingatan, Tentang — pola PasteLAN);
@@ -110,6 +111,18 @@ enum LocalPrefs {
     static var todoGroup: Int {
         get { min(max(d.integer(forKey: "todoGroup"), 0), 1) }
         set { d.set(newValue, forKey: "todoGroup") }
+    }
+
+    /// Urutan manual di popover (tahan ⌃ lalu seret ≡, atau klik kanan → Urutkan): id todo / pengingat,
+    /// yang di depan tampil lebih atas di kelompoknya. Hanya di Mac ini (tidak disinkronkan).
+    static var todoOrder: [Int64] {
+        get { (d.array(forKey: "todoOrder") as? [Int])?.map(Int64.init) ?? [] }
+        set { d.set(newValue.map(Int.init), forKey: "todoOrder") }
+    }
+
+    static var reminderOrder: [Int64] {
+        get { (d.array(forKey: "reminderOrder") as? [Int])?.map(Int64.init) ?? [] }
+        set { d.set(newValue.map(Int.init), forKey: "reminderOrder") }
     }
 
     /// Carousel contoh pertanyaan di atas kotak input chat (bawaan nyala; disembunyikan lewat klik kanan / Pengaturan).
@@ -1132,6 +1145,15 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
     /// Tombol lingkaran yang sedang tampil (id todo → tombol & todo), untuk ganti ikon saat ⌥ ditekan.
     private var checkButtons: [(button: NSButton, todo: Todo)] = []
     private var optionDown = false { didSet { if optionDown != oldValue { updateCheckIcons() } } }
+    // Mode urutkan
+    /// ⌃ ditahan → lingkaran berubah jadi ≡ yang bisa diseret untuk mengubah urutan (hanya di Mac ini).
+    private var controlDown = false { didSet { if controlDown != oldValue { updateCheckIcons() } } }
+    /// Tombol lingkaran pengingat yang sedang tampil (ganti ikon saat ⌃ ditekan).
+    private var reminderChecks: [(button: NSButton, reminder: Reminder)] = []
+    /// Kelompok baris yang bisa diurutkan (baris berurutan di `listStack`), diisi saat daftar dibangun.
+    private var reorderGroups: [(reminders: Bool, items: [(id: Int64, view: NSView)])] = []
+    /// Sedang menyeret baris: daftar tidak dibangun ulang (sinkron ditunda sampai mouse dilepas).
+    private var reordering = false
     private var editor: TodoEditor?
     private var flagsMonitor: Any?
     private let listStack = UI.stack([], spacing: 6)
@@ -1558,8 +1580,10 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         scope.action = #selector(scopeChanged)
         configureScope()
         // ⌥ ditahan → lingkaran berubah jadi ✎ (pola tombol alternatif ⌥ di macOS)
+        // ⌃ ditahan → lingkaran berubah jadi ≡ (seret untuk mengubah urutan)
         flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] e in
             self?.optionDown = e.modifierFlags.contains(.option)
+            self?.controlDown = e.modifierFlags.contains(.control)
             return e
         }
 
@@ -1875,6 +1899,8 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         defer { reanchorDetail() }
         listStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         checkButtons = []
+        reminderChecks = []
+        reorderGroups = []
         rowViews = [:]
         let b = store.buckets
         updateScopeLabels(b)
@@ -2095,7 +2121,8 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         if showAllReminders {
             rebuildAllReminders()
         } else {
-            let list = showDone ? store.looseReminders.paused : todayReminders
+            let list = showDone ? store.looseReminders.paused
+                                : ManualOrder.apply(todayReminders, order: LocalPrefs.reminderOrder, id: \.id)
             if list.isEmpty {
                 let later = store.activeReminders.count
                 addListRow(UI.text(showDone ? "Belum ada pengingat yang selesai."
@@ -2107,7 +2134,13 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
                 if showDone {
                     addListRow(UI.label("Klik ✓ untuk mengaktifkan lagi pengingat.", size: 11, color: .tertiaryLabelColor))
                 }
-                for r in list { addListRow(reminderRow(r)) }
+                var items: [(id: Int64, view: NSView)] = []
+                for r in list {
+                    let row = reminderRow(r)
+                    addListRow(row)
+                    items.append((r.id, row))
+                }
+                if !showDone { addReorderGroup(items, reminders: true) }
             }
         }
         let links = UI.stack([linkButton("Pengingat baru…", #selector(newReminder)),
@@ -2135,14 +2168,24 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
             let day = max(Clock.ymd(d, store.tz), today) // terlewat = hari ini
             if days.last?.day == day { days[days.count - 1].list.append(r) } else { days.append((day, [r])) }
         }
+        // Urutan manual (⌃ + seret) berlaku di dalam tiap hari
+        func rows(_ list: [Reminder], showDay: Bool) {
+            var items: [(id: Int64, view: NSView)] = []
+            for r in ManualOrder.apply(list, order: LocalPrefs.reminderOrder, id: \.id) {
+                let row = reminderRow(r, showDay: showDay)
+                addListRow(row)
+                items.append((r.id, row))
+            }
+            addReorderGroup(items, reminders: true)
+        }
         for g in days {
             let name = Clock.friendly(g.day, now: Date(), store.tz)
             addHeader(name.prefix(1).uppercased() + name.dropFirst(), count: g.list.count)
-            for r in g.list { addListRow(reminderRow(r, showDay: false)) }
+            rows(g.list, showDay: false)
         }
         if !noDate.isEmpty {
             addHeader("Tanpa jadwal", count: noDate.count)
-            for r in noDate { addListRow(reminderRow(r)) }
+            rows(noDate, showDay: true)
         }
         if all.count > PopoverController.maxAllRows {
             addListRow(linkButton("\(all.count - PopoverController.maxAllRows) pengingat lainnya di Pengaturan", #selector(openReminderSettings)))
@@ -2153,13 +2196,15 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
     /// Pengingat milik todo menampilkan judul todo-nya (🔔 Todo: …) supaya jelas asalnya.
     private func reminderRow(_ r: Reminder, showDay: Bool = true) -> NSView {
         let done = !r.active
-        let check = NSButton(image: UI.symbol(done ? "checkmark.circle.fill" : "circle", 16) ?? NSImage(), target: self,
-                             action: #selector(reminderCheckClicked(_:)))
+        let check = RowCheck(image: NSImage(), target: self, action: #selector(reminderCheckClicked(_:)))
         check.isBordered = false
         check.tag = Int(r.id)
-        check.contentTintColor = done ? Theme.accent : .tertiaryLabelColor
-        check.toolTip = done ? "Aktifkan lagi (batalkan selesai)" : "Tandai selesai (pengingat berhenti berbunyi)"
-        check.setAccessibilityLabel((done ? "Aktifkan lagi “" : "Tandai selesai “") + r.title + "”")
+        styleReminderCheck(check, r)
+        if !done {
+            reminderChecks.append((check, r))
+            check.canReorder = { [weak self] in self?.reorderMode ?? false }
+            check.onReorder = { [weak self] e in self?.dragReorder(r.id, e) }
+        }
         let title = UI.text(r.title, width: PopoverController.contentWidth - 30, size: 13, color: done ? .secondaryLabelColor : .labelColor)
         title.isSelectable = false
         var sub: String
@@ -2181,8 +2226,7 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         if !sub.isEmpty { texts.append(UI.label(sub, size: 11, color: done ? .tertiaryLabelColor : .secondaryLabelColor)) }
         let textStack = UI.stack(texts, spacing: 1)
         addCopyClick(textStack, id: r.id, double: #selector(reminderDoubleClicked(_:)), reminder: true)
-        let row = UI.stack([check, textStack], vertical: false, spacing: 8)
-        row.alignment = .top
+        let row = ListRow.make([check, textStack])
         row.toolTip = (r.message.isEmpty ? "" : r.message + "\n\n") + "Klik untuk menyalin · klik dua kali untuk mengubah"
         let m = NSMenu()
         func add(_ title: String, _ action: Selector) {
@@ -2284,9 +2328,15 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
     private func section(_ title: String, _ todos: [Todo], color: NSColor = .secondaryLabelColor, showDate: Bool = true) {
         guard !todos.isEmpty else { return }
         addHeader(title, count: todos.count, color: color)
-        for t in todos {
-            if let editor, editor.todo.id == t.id { addListRow(editor) } else { addListRow(todoRow(t, showDate: showDate)) }
+        var items: [(id: Int64, view: NSView)] = []
+        // Urutan manual (⌃ + seret) berlaku di dalam tiap kelompok; todo tanpa urutan tetap di posisi bawaannya
+        for t in ManualOrder.apply(todos, order: LocalPrefs.todoOrder, id: \.id) {
+            if let editor, editor.todo.id == t.id { addListRow(editor); continue }
+            let row = todoRow(t, showDate: showDate)
+            addListRow(row)
+            items.append((t.id, row))
         }
+        addReorderGroup(items, reminders: false)
     }
 
     private func addListRow(_ v: NSView) {
@@ -2297,9 +2347,11 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
 
     /// Lingkaran di kiri = tandai selesai (⌥ ditahan = ✎ ubah). Klik dua kali judul / klik kanan = ubah.
     private func todoRow(_ t: Todo, showDate: Bool = true) -> NSView {
-        let check = NSButton(image: NSImage(), target: self, action: #selector(completeClicked(_:)))
+        let check = RowCheck(image: NSImage(), target: self, action: #selector(completeClicked(_:)))
         check.isBordered = false
         check.tag = Int(t.id)
+        check.canReorder = { [weak self] in self?.reorderMode ?? false }
+        check.onReorder = { [weak self] e in self?.dragReorder(t.id, e) }
         styleCheck(check, t)
         checkButtons.append((check, t))
         var meta: [String] = []
@@ -2350,8 +2402,7 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         if !metaViews.isEmpty { texts.append(UI.stack(metaViews, vertical: false, spacing: 4)) }
         let textStack = UI.stack(texts, spacing: 1)
         addCopyClick(textStack, id: t.id, double: #selector(rowDoubleClicked(_:)))
-        let row = UI.stack([check, textStack], vertical: false, spacing: 8)
-        row.alignment = .top
+        let row = ListRow.make([check, textStack])
         // arahkan mouse = intip detail + petunjuk klik
         row.toolTip = (t.notes.isEmpty ? "" : t.notes + "\n\n") + "Klik untuk menyalin · klik dua kali untuk mengubah"
         row.menu = rowMenu(t)
@@ -2456,7 +2507,9 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
     }
 
     private func styleCheck(_ b: NSButton, _ t: Todo) {
-        if optionDown {
+        if reorderMode {
+            styleHandle(b, t.title)
+        } else if optionDown {
             b.image = UI.symbol("pencil.circle", 16)
             b.contentTintColor = Theme.accent
             b.toolTip = "Ubah"
@@ -2464,14 +2517,141 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         } else {
             b.image = UI.symbol("circle", 16)
             b.contentTintColor = t.priority == "high" ? Theme.danger : .tertiaryLabelColor
-            b.toolTip = "Tandai selesai · ⌥-klik untuk mengubah"
+            b.toolTip = "Tandai selesai · ⌥-klik untuk mengubah · tahan ⌃ untuk mengurutkan"
             b.setAccessibilityLabel("Tandai “\(t.title)” selesai")
         }
     }
 
+    private func styleReminderCheck(_ b: NSButton, _ r: Reminder) {
+        let done = !r.active
+        if reorderMode && !done { return styleHandle(b, r.title) }
+        b.image = UI.symbol(done ? "checkmark.circle.fill" : "circle", 16)
+        b.contentTintColor = done ? Theme.accent : .tertiaryLabelColor
+        b.toolTip = done ? "Aktifkan lagi (batalkan selesai)" : "Tandai selesai (pengingat berhenti berbunyi) · tahan ⌃ untuk mengurutkan"
+        b.setAccessibilityLabel((done ? "Aktifkan lagi “" : "Tandai selesai “") + r.title + "”")
+    }
+
+    /// ⌃ ditahan: lingkaran jadi pegangan ≡ (seret untuk memindah).
+    private func styleHandle(_ b: NSButton, _ title: String) {
+        b.image = UI.symbol("line.3.horizontal", 14)
+        b.contentTintColor = .secondaryLabelColor
+        b.toolTip = "Seret untuk memindah urutan"
+        b.setAccessibilityLabel("Pindahkan “\(title)”")
+    }
+
     private func updateCheckIcons() {
         for c in checkButtons where c.button.isEnabled { styleCheck(c.button, c.todo) }
-        syncLabel.stringValue = optionDown && mode == .todo ? "Mode ubah: klik ✎ untuk mengubah todo" : app.syncStatus
+        for c in reminderChecks where c.button.isEnabled { styleReminderCheck(c.button, c.reminder) }
+        for b in checkButtons.map { $0.button } + reminderChecks.map { $0.button } { view.window?.invalidateCursorRects(for: b) }
+        syncLabel.stringValue = reorderMode ? "Mode urutkan: seret ≡ untuk memindah"
+            : optionDown && mode == .todo ? "Mode ubah: klik ✎ untuk mengubah todo" : app.syncStatus
+    }
+
+    // MARK: Mode urutkan (tahan ⌃ lalu seret ≡, atau klik kanan → Urutkan)
+
+    /// Urutan manual hanya di daftar todo / pengingat yang masih aktif (bukan filter Selesai) dan tidak sedang mengubah.
+    private var reorderMode: Bool { controlDown && !optionDown && mode != .chat && !showDone && editor == nil }
+
+    /// Catat satu kelompok baris yang bisa diurutkan + pasang submenu "Urutkan" di menu klik kanan tiap baris
+    /// (jalan lain selain seret: Paling atas / Naikkan / Turunkan / Paling bawah / Urutan bawaan).
+    private func addReorderGroup(_ items: [(id: Int64, view: NSView)], reminders: Bool) {
+        guard !items.isEmpty else { return }
+        reorderGroups.append((reminders, items))
+        let saved = Set(reminders ? LocalPrefs.reminderOrder : LocalPrefs.todoOrder)
+        let custom = items.contains { saved.contains($0.id) }
+        guard items.count > 1 || custom else { return }
+        for (i, item) in items.enumerated() {
+            guard let menu = item.view.menu else { continue }
+            let sub = NSMenu()
+            // action nil = otomatis nonaktif (menu memakai autoenablesItems)
+            func add(_ title: String, _ tag: Int, _ enabled: Bool) {
+                let mi = NSMenuItem(title: title, action: enabled ? #selector(reorderMenuItem(_:)) : nil, keyEquivalent: "")
+                mi.target = self
+                mi.tag = tag
+                mi.representedObject = NSNumber(value: item.id)
+                sub.addItem(mi)
+            }
+            let last = items.count - 1
+            add("Paling atas", -2, i > 0)
+            add("Naikkan", -1, i > 0)
+            add("Turunkan", 1, i < last)
+            add("Paling bawah", 2, i < last)
+            sub.addItem(.separator())
+            add("Urutan bawaan (menurut waktu)", 0, custom)
+            let hint = NSMenuItem(title: "Tip: tahan ⌃ lalu seret ≡", action: nil, keyEquivalent: "")
+            hint.isEnabled = false
+            sub.addItem(hint)
+            let parent = NSMenuItem(title: "Urutkan", action: nil, keyEquivalent: "")
+            parent.submenu = sub
+            // sebelum pemisah terakhir (di atas Tandai selesai / Hapus…)
+            let at = menu.items.lastIndex(where: \.isSeparatorItem) ?? menu.items.count
+            menu.insertItem(parent, at: at)
+        }
+    }
+
+    @objc private func reorderMenuItem(_ item: NSMenuItem) {
+        guard let id = (item.representedObject as? NSNumber)?.int64Value,
+              let g = reorderGroups.first(where: { $0.items.contains { $0.id == id } }) else { return }
+        var ids = g.items.map { $0.id }
+        if item.tag == 0 {
+            if g.reminders { LocalPrefs.reminderOrder = ManualOrder.reset(ids, in: LocalPrefs.reminderOrder) }
+            else { LocalPrefs.todoOrder = ManualOrder.reset(ids, in: LocalPrefs.todoOrder) }
+            rebuildList()
+            return flashStatus("Urutan kembali menurut waktu")
+        }
+        guard let i = ids.firstIndex(of: id) else { return }
+        ids.remove(at: i)
+        switch item.tag {
+        case -2: ids.insert(id, at: 0)
+        case -1: ids.insert(id, at: max(0, i - 1))
+        case 1: ids.insert(id, at: min(ids.count, i + 1))
+        default: ids.append(id)
+        }
+        commitOrder(ids, reminders: g.reminders)
+    }
+
+    /// Seret baris lewat pegangan ≡: baris ikut berpindah selama mouse ditahan (hanya di dalam kelompoknya),
+    /// urutan disimpan saat dilepas.
+    private func dragReorder(_ id: Int64, _ event: NSEvent) {
+        guard let window = view.window, let g = reorderGroups.first(where: { $0.items.contains { $0.id == id } }),
+              g.items.count > 1, let row = g.items.first(where: { $0.id == id })?.view else { return }
+        let before = g.items.map { $0.id }
+        var views = g.items.map { $0.view }
+        reordering = true
+        row.alphaValue = 0.6
+        NSCursor.closedHand.push()
+        let mask: NSEvent.EventTypeMask = [.leftMouseDragged, .leftMouseUp, .rightMouseDragged, .rightMouseUp]
+        while let e = window.nextEvent(matching: mask) {
+            if e.type == .leftMouseUp || e.type == .rightMouseUp { break }
+            listScroll.contentView.autoscroll(with: e)
+            // posisi baru = jumlah baris lain yang titik tengahnya di atas mouse (koordinat jendela: y ke atas)
+            let others = views.filter { $0 !== row }
+            let target = others.filter { $0.convert($0.bounds, to: nil).midY > e.locationInWindow.y }.count
+            guard views.firstIndex(where: { $0 === row }) != target, let first = others.first else { continue }
+            listStack.removeArrangedSubview(row)
+            let start = listStack.arrangedSubviews.firstIndex(where: { $0 === first }) ?? 0
+            listStack.insertArrangedSubview(row, at: start + target)
+            views = others
+            views.insert(row, at: target)
+            listStack.layoutSubtreeIfNeeded()
+        }
+        NSCursor.pop()
+        row.alphaValue = 1
+        reordering = false
+        controlDown = NSEvent.modifierFlags.contains(.control)
+        let after = views.compactMap { v in g.items.first { $0.view === v }?.id }
+        if after != before { commitOrder(after, reminders: g.reminders) } else if listStale { refreshList() }
+    }
+
+    /// Simpan urutan baru satu kelompok (hanya di Mac ini), lalu bangun ulang daftar.
+    private func commitOrder(_ ids: [Int64], reminders: Bool) {
+        if reminders {
+            LocalPrefs.reminderOrder = ManualOrder.place(ids, in: LocalPrefs.reminderOrder, keep: Set(store.reminders.map(\.id)))
+        } else {
+            LocalPrefs.todoOrder = ManualOrder.place(ids, in: LocalPrefs.todoOrder, keep: Set(store.todos.map(\.id)))
+        }
+        if listStale { refreshList() } else { rebuildList() }
+        flashStatus("Urutan disimpan")
     }
 
     // MARK: Mode ubah
@@ -2622,7 +2802,8 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         if online {
             // Hemat sumber daya: popover tertutup → daftar tidak digambar ulang di latar (bisa ratusan baris
             // setiap sinkron); cukup ditandai, lalu dibangun sekali tepat sebelum popover tampil (`willShow`).
-            if view.window?.isVisible == true { refreshList() } else { listStale = true }
+            // Sedang menyeret baris (mode urutkan) → juga ditunda sampai mouse dilepas.
+            if view.window?.isVisible == true && !reordering { refreshList() } else { listStale = true }
         }
         updateControls()
     }
@@ -2667,6 +2848,7 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
     func didShow() {
         guard store.connected else { return }
         optionDown = NSEvent.modifierFlags.contains(.option)
+        controlDown = NSEvent.modifierFlags.contains(.control)
         if mode == .chat {
             view.window?.makeFirstResponder(input)
             loadHistory()
@@ -2728,6 +2910,52 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
 /// Klik dua kali judul todo → ubah (menyimpan id todo di recognizer).
 final class TodoClick: NSClickGestureRecognizer {
     var todoID: Int64 = 0
+}
+
+/// Lingkaran ○ di kiri baris todo / pengingat. Selama ⌃ ditahan (mode urutkan) menjadi pegangan ≡:
+/// tekan lalu seret = pindahkan baris. ⌃-klik biasanya = klik kanan (menu), jadi di mode urutkan menu
+/// tidak dibuka dari tombol ini — klik kanan di teks baris tetap membuka menu.
+final class RowCheck: NSButton {
+    /// Mode urutkan sedang aktif untuk baris ini?
+    var canReorder: () -> Bool = { false }
+    /// Mulai menyeret (melacak mouse sampai dilepas).
+    var onReorder: ((NSEvent) -> Void)?
+
+    override func mouseDown(with event: NSEvent) {
+        if canReorder(), let onReorder { return onReorder(event) }
+        super.mouseDown(with: event)
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        if event.modifierFlags.contains(.control), canReorder(), let onReorder { return onReorder(event) }
+        super.rightMouseDown(with: event)
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        canReorder() ? nil : super.menu(for: event)
+    }
+
+    override func resetCursorRects() {
+        if canReorder() { addCursorRect(bounds, cursor: .openHand) } else { super.resetCursorRects() }
+    }
+}
+
+/// Baris daftar di popover (○ + teks). ⌃-klik pada pegangan ≡ di mode urutkan tidak membuka menu baris,
+/// supaya tekan-lalu-seret sampai ke `RowCheck`.
+final class ListRow: NSStackView {
+    static func make(_ views: [NSView]) -> ListRow {
+        let r = ListRow(views: views)
+        r.orientation = .horizontal
+        r.alignment = .top
+        r.spacing = 8
+        return r
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let p = superview.map { $0.convert(event.locationInWindow, from: nil) } ?? .zero
+        if let c = hitTest(p) as? RowCheck, c.canReorder() { return nil }
+        return super.menu(for: event)
+    }
 }
 
 /// Menggantikan baris todo di daftar selama diubah. Tanggal & jam memakai NSDatePicker bawaan macOS

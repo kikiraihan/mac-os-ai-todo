@@ -29,6 +29,15 @@ check(ServerURL.normalize("http://todo.katili.dev") == nil, "http ke host publik
 check(ServerURL.normalize("https://user:pw@todo.katili.dev") == nil, "URL dengan kredensial ditolak")
 check(ServerURL.normalize("http://127.0.0.1:8080/")?.absoluteString == "http://127.0.0.1:8080", "http localhost boleh")
 
+// Urutan manual (tahan ⌃ lalu seret di popover): item tanpa urutan tetap di posisi bawaannya
+check(ManualOrder.apply([1, 2, 3, 4] as [Int64], order: [], id: { $0 }) == [1, 2, 3, 4], "urutan manual kosong → urutan bawaan")
+check(ManualOrder.apply([1, 2, 3, 4] as [Int64], order: [4, 3, 2, 1], id: { $0 }) == [4, 3, 2, 1], "urutan manual dipakai")
+check(ManualOrder.apply([1, 5, 2, 3] as [Int64], order: [3, 1, 2], id: { $0 }) == [3, 5, 1, 2],
+      "item baru (tanpa urutan) tetap di posisi bawaannya")
+let placed = ManualOrder.place([3, 1], in: [9, 1, 7, 3, 8], keep: [1, 3, 7, 9])
+check(placed == [9, 7, 3, 1], "simpan urutan kelompok: kelompok lain tetap, id yang hilang dibuang (\(placed))")
+check(ManualOrder.reset([3, 1], in: [9, 3, 1]) == [9], "kembalikan kelompok ke urutan bawaan")
+
 guard let base = ServerURL.normalize(env["AITODO_URL"] ?? ""), let user = env["AITODO_USER"], let pass = env["AITODO_PASS"] else {
     print("set AITODO_URL, AITODO_USER, AITODO_PASS"); exit(2)
 }
