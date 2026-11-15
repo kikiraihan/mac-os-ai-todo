@@ -50,6 +50,10 @@ Semua tampilan (aplikasi Mac & web) mengikuti gaya desain Apple (Human Interface
   todo baru / `ReminderEditor` `compact`), isian cepat ikut terbawa; Batal = kembali ke kartu cepat.
 - Aksi alternatif mengikuti pola macOS: tahan ⌥ untuk menampilkan aksi kedua (mis. ○ selesai → ✎
   ubah, menu Salin → Salin judul saja), selalu dengan jalan lain yang mudah ditemukan (klik dua kali, klik kanan).
+- **Urutan manual** (popover Mac, tab Todo & Pengingat, bukan filter Selesai): tahan ⌃ → lingkaran jadi pegangan ≡,
+  seret = pindah di dalam kelompoknya; jalan lain: klik kanan → Urutkan (Paling atas/Naikkan/Turunkan/Paling bawah/
+  Urutan bawaan). Disimpan lokal (`LocalPrefs.todoOrder` / `reminderOrder`, logika `ManualOrder` di Client.swift);
+  item tanpa urutan (mis. todo baru) tetap di posisi bawaannya menurut waktu.
 - Salin todo = teks polos "Judul" + baris kosong + detail (`TodoCopy` di Mac, `web/src/copy.js`), selalu dengan
   umpan balik singkat ("Judul & detail disalin"). Di popover Mac: klik teks = salin, ikon ○ = selesai, klik dua kali = ubah.
 - Popover Mac: tab **Chat | Todo | Pengingat**; filter "Selesai" selalu paling ujung (✓ di sana = batalkan selesai).

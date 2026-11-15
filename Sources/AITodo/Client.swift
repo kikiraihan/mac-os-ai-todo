@@ -533,6 +533,35 @@ struct TodoBuckets {
     var total: Int { overdue.count + today.count + upcoming.count + noDate.count }
 }
 
+// MARK: - Urutan manual (popover Mac: tahan ⌃ lalu seret ≡)
+
+/// Urutan buatan pengguna di satu kelompok daftar (mis. "Hari ini", "Besok", "Belanja"), disimpan sebagai
+/// daftar id (depan = lebih atas). Item yang belum punya urutan (mis. todo baru) tetap di posisi bawaannya
+/// (menurut waktu); item yang punya urutan mengisi sisa posisi sesuai urutan itu.
+enum ManualOrder {
+    static func apply<T>(_ items: [T], order: [Int64], id: (T) -> Int64) -> [T] {
+        guard !order.isEmpty else { return items }
+        var rank: [Int64: Int] = [:]
+        for (i, x) in order.enumerated() where rank[x] == nil { rank[x] = i }
+        let ranked = items.filter { rank[id($0)] != nil }.sorted { rank[id($0)]! < rank[id($1)]! }
+        var next = ranked.makeIterator()
+        return items.map { rank[id($0)] != nil ? next.next()! : $0 }
+    }
+
+    /// Simpan urutan baru satu kelompok: id kelompok itu dipindah ke belakang dengan urutan baru
+    /// (urutan relatif kelompok lain tidak berubah). `keep` = id yang masih ada (sisanya dibuang).
+    static func place(_ section: [Int64], in order: [Int64], keep: Set<Int64>) -> [Int64] {
+        let s = Set(section)
+        return order.filter { !s.contains($0) && keep.contains($0) } + section
+    }
+
+    /// Kembalikan kelompok ke urutan bawaan (menurut waktu).
+    static func reset(_ section: [Int64], in order: [Int64]) -> [Int64] {
+        let s = Set(section)
+        return order.filter { !s.contains($0) }
+    }
+}
+
 // MARK: - Notifikasi lokal yang perlu dijadwalkan
 
 struct PlannedNotification: Equatable {

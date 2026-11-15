@@ -234,6 +234,12 @@ Rancangan: [`../docs/PRD.md`](../docs/PRD.md). Perbarui setiap tugas selesai.
       lainnya"); Semua = semua pengingat aktif, termasuk milik todo (🔔 judul todo), dikelompokkan per hari lalu
       "Tanpa jadwal". Pilihan lama Selesai tetap diingat (kunci prefs baru `reminderFilter`)
 - [ ] Uji manual di Mac sungguhan: tab Pengingat → Semua menampilkan pengingat besok & milik todo
+- [x] 0.16.0: popover Mac — **urutan manual** todo & pengingat: tahan ⌃ → lingkaran jadi ≡, seret untuk memindah
+      di dalam kelompoknya (Hari ini, Besok, kategori, …); jalan lain klik kanan → Urutkan (Paling atas, Naikkan,
+      Turunkan, Paling bawah, Urutan bawaan). Disimpan di Mac ini saja; todo/pengingat baru tetap di posisi
+      bawaannya (menurut waktu). Logika `ManualOrder` (Client.swift) diuji di `Tests/ClientCheck`
+- [ ] Uji manual di Mac sungguhan: tahan ⌃ lalu seret ≡ (juga ⌃-klik tidak membuka menu di pegangan), urutan
+      bertahan setelah sinkron & buka-tutup popover
 
 ## Berikutnya
 
