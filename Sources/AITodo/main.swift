@@ -256,6 +256,20 @@ final class Store {
         }
     }
 
+    /// Sinkron ulang manual (tombol ↻ di popover / ⌘R / menu klik kanan): ambil ulang semua data dari server.
+    /// Long-poll yang sedang menunggu jeda karena gagal (offline) dimulai ulang, supaya tidak menunggu sampai 60 dtk.
+    func resync(_ done: @escaping () -> Void) {
+        guard api.isConfigured, !needsLogin else { return done() }
+        guard failures > 0 else { return refresh(done) }
+        failures = 0
+        generation += 1
+        let g = generation
+        refresh { [weak self] in
+            self?.poll(g)
+            done()
+        }
+    }
+
     private func finish(error: APIError?) {
         if !Thread.isMainThread { return DispatchQueue.main.async { self.finish(error: error) } }
         refreshing = false
@@ -1103,6 +1117,13 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         b.keyEquivalentModifierMask = .command
         return b
     }()
+    /// Tombol ↻ di header (di samping ⚙): sinkron ulang data dari server sekarang (⌘R).
+    private lazy var resyncButton: NSButton = {
+        let b = UI.iconButton("arrow.clockwise", tip: "Sinkronkan ulang dari server (⌘R)", self, #selector(resyncTapped))
+        b.keyEquivalent = "r"
+        b.keyEquivalentModifierMask = .command
+        return b
+    }()
     /// Kolom cari di atas filter: menyaring daftar yang sedang tampil (judul, detail, kategori / pesan, jadwal).
     private let searchField = NSSearchField()
     private var searchOpen = false
@@ -1200,11 +1221,11 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         segment.target = self
         segment.action = #selector(segmentChanged)
         segment.selectedSegment = 0
-        for i in 0..<3 { segment.setWidth(88, forSegment: i) }
+        for i in 0..<3 { segment.setWidth(80, forSegment: i) } // 80 (dulu 88): header muat ↻ di samping ⚙
         segment.translatesAutoresizingMaskIntoConstraints = false
         let web = UI.iconButton("globe", tip: "Buka AI Todo di browser", self, #selector(openWeb))
         let gear = UI.iconButton("gearshape", tip: "Pengaturan (⌘,)", self, #selector(openSettings))
-        let header = UI.stack([segment, NSView(), clearButton, searchButton, newTodoButton, web, gear], vertical: false, spacing: 4)
+        let header = UI.stack([segment, NSView(), clearButton, searchButton, newTodoButton, web, resyncButton, gear], vertical: false, spacing: 4)
         header.translatesAutoresizingMaskIntoConstraints = false
         let line = NSBox()
         line.boxType = .separator
@@ -1430,8 +1451,9 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         updateSuggestions()
         // Hapus riwayat: hanya di tab Chat, saat terhubung, dan tidak sedang menunggu server
         clearButton.isEnabled = !busy && store.connected && mode == .chat
-        // Di tab Todo & Pengingat tempatnya dipakai tombol cari (header muat 4 ikon)
+        // Di tab Todo & Pengingat tempatnya dipakai tombol cari
         clearButton.isHidden = mode != .chat
+        resyncButton.isHidden = !store.connected
     }
 
     private func setBatch(_ b: BatchView?) {
@@ -1814,6 +1836,21 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         addCardOpen = open
         updateAddCard()
         view.window?.makeFirstResponder(open ? titleField : nil)
+    }
+
+    // MARK: Sinkron ulang (tombol ↻ / ⌘R)
+
+    /// Ambil ulang todo, pengingat, dan (di tab Chat) riwayat chat dari server; hasilnya dikabarkan di baris status.
+    @objc private func resyncTapped() {
+        guard store.connected, resyncButton.isEnabled else { return }
+        resyncButton.isEnabled = false
+        syncLabel.stringValue = "Menyinkronkan…"
+        if mode == .chat { loadHistory() }
+        app.resync { [weak self] in
+            guard let self else { return }
+            self.resyncButton.isEnabled = true
+            if let e = self.store.lastError { self.flashStatus("Gagal sinkron: \(e)") } else { self.flashStatus("Data sudah terbaru") }
+        }
     }
 
     // MARK: Cari (tombol 🔍 / ⌘F)
@@ -5409,6 +5446,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let st = NSMenuItem(title: syncStatus, action: nil, keyEquivalent: "")
         st.isEnabled = false
         contextMenu.addItem(st)
+        let sync = item("Sinkronkan sekarang", #selector(resyncNow), key: "r")
+        sync.isEnabled = store.connected
+        contextMenu.addItem(sync)
         contextMenu.addItem(.separator())
         let ask = item("Buka asisten", #selector(openChat), key: "t")
         ask.keyEquivalentModifierMask = [.command, .option]
@@ -5442,6 +5482,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: Aksi
 
     @objc func openChat() { showPopover(.chat) }
+
+    /// Sinkron ulang manual dari server (tombol ↻ di popover, ⌘R, atau menu klik kanan ikon menu bar).
+    func resync(_ done: @escaping () -> Void = {}) {
+        guard store.connected else { return done() }
+        store.resync(done)
+    }
+    @objc func resyncNow() { resync() }
     @objc func openManual() { showPopover(.todo) }
 
     /// Menu klik kanan: buka popover tab Chat, lalu konfirmasi yang sama dengan tombol tempat sampah.
