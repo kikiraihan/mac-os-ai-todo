@@ -1110,13 +1110,6 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
     }()
     /// Kartu tambah terbuka? Bawaan tertutup supaya daftar tetap ringkas.
     private var addCardOpen = false
-    /// Tombol 🔍 di header (tab Todo & Pengingat): buka / tutup kolom cari (⌘F). Bawaan tertutup.
-    private lazy var searchButton: NSButton = {
-        let b = UI.iconButton("magnifyingglass", tip: "Cari (⌘F)", self, #selector(toggleSearch))
-        b.keyEquivalent = "f"
-        b.keyEquivalentModifierMask = .command
-        return b
-    }()
     /// Tombol ↻ di header (di samping ⚙): sinkron ulang data dari server sekarang (⌘R).
     private lazy var resyncButton: NSButton = {
         let b = UI.iconButton("arrow.clockwise", tip: "Sinkronkan ulang dari server (⌘R)", self, #selector(resyncTapped))
@@ -1124,9 +1117,10 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         b.keyEquivalentModifierMask = .command
         return b
     }()
-    /// Kolom cari di atas filter: menyaring daftar yang sedang tampil (judul, detail, kategori / pesan, jadwal).
+    /// Kolom cari di samping filter, selalu tampil di tab Todo & Pengingat (dulu di balik tombol 🔍):
+    /// menyaring daftar yang sedang tampil (judul, detail, kategori / pesan, jadwal). Popover dibuka → langsung bisa mengetik.
     private let searchField = NSSearchField()
-    private var searchOpen = false
+    private var keyMonitor: Any?
 
     // Manual
     private let titleField = NSTextField()
@@ -1168,8 +1162,8 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
     private var loadingDone = false
     /// Kartu tambah cepat; di tab Todo & Pengingat (bukan filter Selesai).
     private let addCard = RoundedBox(fill: .controlBackgroundColor, stroke: .separatorColor, radius: 12)
-    /// Kolom cari (bila terbuka) + filter; stack menyembunyikan kolom cari tanpa menyisakan ruang.
-    private lazy var filterBar = UI.stack([searchField, scope], spacing: 8)
+    /// Filter + kolom cari dalam satu baris: [Hari ini | Semua | Selesai] [🔍 Cari…        ].
+    private lazy var filterBar = UI.stack([scope, searchField], vertical: false, spacing: 8)
     private lazy var scopeBelowCard = filterBar.topAnchor.constraint(equalTo: addHost.bottomAnchor, constant: 12)
     private lazy var scopeAtTop = filterBar.topAnchor.constraint(equalTo: manualBox.topAnchor, constant: 12)
     /// Batas baris di tampilan Semua; sisanya lewat tautan ke browser.
@@ -1225,7 +1219,7 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         segment.translatesAutoresizingMaskIntoConstraints = false
         let web = UI.iconButton("globe", tip: "Buka AI Todo di browser", self, #selector(openWeb))
         let gear = UI.iconButton("gearshape", tip: "Pengaturan (⌘,)", self, #selector(openSettings))
-        let header = UI.stack([segment, NSView(), clearButton, searchButton, newTodoButton, web, resyncButton, gear], vertical: false, spacing: 4)
+        let header = UI.stack([segment, NSView(), clearButton, newTodoButton, web, resyncButton, gear], vertical: false, spacing: 4)
         header.translatesAutoresizingMaskIntoConstraints = false
         let line = NSBox()
         line.boxType = .separator
@@ -1618,10 +1612,22 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         searchField.controlSize = .small
         searchField.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         searchField.sendsSearchStringImmediately = true
-        searchField.delegate = self // Esc = kosongkan lalu tutup
+        searchField.delegate = self // Esc = kosongkan; kosong → tutup popover
         searchField.target = self   // ketik / tombol ⓧ = saring ulang
         searchField.action = #selector(searchFieldChanged)
-        searchField.isHidden = true
+        // Isi sisa lebar baris filter; filter tetap selebar labelnya
+        searchField.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        searchField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        scope.setContentHuggingPriority(.required, for: .horizontal)
+        scope.setContentCompressionResistancePriority(.required, for: .horizontal)
+        // ⌘F = fokus ke kolom cari (pintasan standar macOS)
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
+            guard let self, e.window === self.view.window, self.mode != .chat, !self.manualBox.isHidden,
+                  e.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+                  e.charactersIgnoringModifiers?.lowercased() == "f" else { return e }
+            self.focusSearch()
+            return nil
+        }
         // ⌥ ditahan → lingkaran berubah jadi ✎ (pola tombol alternatif ⌥ di macOS)
         // ⌃ ditahan → lingkaran berubah jadi ≡ (seret untuk mengubah urutan)
         flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] e in
@@ -1660,7 +1666,6 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
             addHost.trailingAnchor.constraint(equalTo: manualBox.trailingAnchor, constant: -i),
             filterBar.leadingAnchor.constraint(equalTo: manualBox.leadingAnchor, constant: i),
             filterBar.trailingAnchor.constraint(equalTo: manualBox.trailingAnchor, constant: -i),
-            searchField.widthAnchor.constraint(equalTo: filterBar.widthAnchor),
             listScroll.topAnchor.constraint(equalTo: filterBar.bottomAnchor, constant: 2),
             listScroll.leadingAnchor.constraint(equalTo: manualBox.leadingAnchor),
             listScroll.trailingAnchor.constraint(equalTo: manualBox.trailingAnchor),
@@ -1708,11 +1713,6 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         newTodoButton.toolTip = addCardOpen ? "Tutup form \(noun.lowercased()) baru (Esc)"
                                             : "\(noun) baru (⌘N) · ⌥-klik: isian lengkap"
         newTodoButton.setAccessibilityLabel(addCardOpen ? "Tutup form \(noun.lowercased()) baru" : "\(noun) baru")
-        searchButton.isHidden = mode == .chat
-        searchButton.contentTintColor = searchOpen ? Theme.accent : .secondaryLabelColor
-        searchButton.toolTip = searchOpen ? "Tutup pencarian (Esc)" : "Cari \(noun.lowercased()) (⌘F)"
-        searchButton.setAccessibilityLabel(searchOpen ? "Tutup pencarian" : "Cari \(noun.lowercased())")
-        searchField.isHidden = !searchOpen || mode == .chat
         let card = canAdd && addCardOpen
         addHost.isHidden = !card
         scopeBelowCard.isActive = card
@@ -1835,7 +1835,7 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         }
         addCardOpen = open
         updateAddCard()
-        view.window?.makeFirstResponder(open ? titleField : nil)
+        if open { view.window?.makeFirstResponder(titleField) } else { focusSearch() } // tutup kartu → kembali ke kolom cari
     }
 
     // MARK: Sinkron ulang (tombol ↻ / ⌘R)
@@ -1853,36 +1853,17 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         }
     }
 
-    // MARK: Cari (tombol 🔍 / ⌘F)
+    // MARK: Cari (kolom di samping filter / ⌘F)
 
-    /// ⌘F / 🔍: buka kolom cari & fokus; sudah terbuka tapi tidak fokus → fokus saja; selain itu tutup.
-    @objc private func toggleSearch() {
+    /// Fokus ke kolom cari; isi lama terpilih supaya ketikan baru langsung menggantinya.
+    private func focusSearch() {
         guard mode != .chat else { return }
-        if searchOpen && !searchFocused && NSApp.currentEvent?.type == .keyDown {
-            view.window?.makeFirstResponder(searchField)
-            return
-        }
-        setSearch(open: !searchOpen)
-    }
-
-    private func setSearch(open: Bool) {
-        let hadQuery = searching
-        searchOpen = open
-        if !open { searchField.stringValue = "" }
-        updateAddCard()
-        if open { view.window?.makeFirstResponder(searchField) }
-        else if searchFocused { view.window?.makeFirstResponder(nil) }
-        if hadQuery != searching { searchChanged() }
-    }
-
-    /// Kursor sedang di kolom cari (yang aktif sebenarnya field editor milik kolom itu).
-    private var searchFocused: Bool {
-        guard let fieldEditor = view.window?.firstResponder as? NSText else { return false }
-        return (fieldEditor.delegate as? NSSearchField) === searchField
+        view.window?.makeFirstResponder(searchField)
+        searchField.currentEditor()?.selectAll(nil)
     }
 
     /// Kata kunci yang sedang dipakai ("" = tidak menyaring).
-    private var query: String { searchOpen && mode != .chat ? searchField.stringValue : "" }
+    private var query: String { mode != .chat ? searchField.stringValue : "" }
     private var searching: Bool { !TextSearch.terms(query).isEmpty }
 
     /// Todo terbuka yang cocok dengan pencarian (semua bila tidak mencari).
@@ -2974,7 +2955,7 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
 
     func select(_ m: Mode) {
         _ = view
-        if m != mode { editor = nil; addCardOpen = false; closeAdvanced(focus: false); searchOpen = false; searchField.stringValue = "" }
+        if m != mode { editor = nil; addCardOpen = false; closeAdvanced(focus: false); searchField.stringValue = "" }
         mode = m
         segment.selectedSegment = m.rawValue
         configureScope()
@@ -3000,10 +2981,8 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
             view.window?.makeFirstResponder(editor.titleField)
         } else if mode != .chat && !showDone && addCardOpen {
             view.window?.makeFirstResponder(advancedTitleField ?? titleField)
-        } else if mode != .chat && searchOpen {
-            view.window?.makeFirstResponder(searchField)
         } else {
-            view.window?.makeFirstResponder(nil) // kartu tambah tertutup / filter Selesai
+            focusSearch() // kartu tambah tertutup → langsung bisa mengetik untuk mencari
         }
     }
 
@@ -3350,9 +3329,9 @@ extension PopoverController: NSTextFieldDelegate {
             setAddCard(open: false)
             return true
         }
-        // Esc di kolom cari: kosongkan dulu, Esc berikutnya menutup kolom cari
+        // Esc di kolom cari: kosongkan dulu, Esc berikutnya menutup popover (seperti biasa)
         if control === searchField, selector == #selector(NSResponder.cancelOperation(_:)) {
-            if searchField.stringValue.isEmpty { setSearch(open: false) } else { searchField.stringValue = ""; searchChanged() }
+            if searchField.stringValue.isEmpty { app.closePopover() } else { searchField.stringValue = ""; searchChanged() }
             return true
         }
         guard control === input, selector == #selector(NSResponder.insertNewline(_:)),
