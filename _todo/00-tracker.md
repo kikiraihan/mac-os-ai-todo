@@ -252,6 +252,10 @@ Rancangan: [`../docs/PRD.md`](../docs/PRD.md). Perbarui setiap tugas selesai.
       ("Data sudah terbaru" / "Gagal sinkron: …"). Long-poll yang sedang jeda karena offline dimulai ulang. Lebar tab
       header 88 → 80 supaya muat
 - [ ] Uji manual di Mac sungguhan: ↻ / ⌘R di ketiga tab, matikan Wi-Fi → ↻ → nyalakan → ↻ langsung tersinkron
+- [x] 0.18.1: popover Mac — kolom **cari selalu tampil** di samping filter (Hari ini | Semua | Selesai), tidak lagi di
+      balik tombol 🔍 (tombolnya dihapus dari header). Popover dibuka / kartu tambah ditutup → kursor langsung di kolom
+      cari, tinggal mengetik; ⌘F = fokus lagi (isi lama terpilih). Esc kosongkan, Esc lagi = tutup popover
+- [ ] Uji manual di Mac sungguhan: buka popover tab Todo → langsung ketik; ⌘N / ＋ lalu Esc → kembali ke kolom cari
 
 ## Berikutnya
 

@@ -54,10 +54,11 @@ Semua tampilan (aplikasi Mac & web) mengikuti gaya desain Apple (Human Interface
   seret = pindah di dalam kelompoknya; jalan lain: klik kanan → Urutkan (Paling atas/Naikkan/Turunkan/Paling bawah/
   Urutan bawaan). Disimpan lokal (`LocalPrefs.todoOrder` / `reminderOrder`, logika `ManualOrder` di Client.swift);
   item tanpa urutan (mis. todo baru) tetap di posisi bawaannya menurut waktu.
-- **Cari** (popover Mac, tab Todo & Pengingat): tombol 🔍 di header / ⌘F membuka kolom cari di atas filter (bawaan
-  tersembunyi, Esc kosongkan → Esc lagi tutup). Menyaring filter yang aktif; pencocokan `TextSearch` di Client.swift.
+- **Cari** (popover Mac, tab Todo & Pengingat): kolom cari selalu tampil di samping filter (satu baris), langsung
+  terfokus saat popover dibuka (⌘F = fokus lagi; Esc kosongkan → Esc lagi tutup popover). Menyaring filter yang aktif;
+  pencocokan `TextSearch` di Client.swift. Keputusan pemilik: jangan kembali ke tombol 🔍 di header.
 - **Sinkron ulang** (popover Mac): tombol ↻ di samping ⚙ / ⌘R / klik kanan ikon menu bar → "Sinkronkan sekarang"
-  (`Store.resync`). Header popover sudah penuh (maks. 5 ikon di tab Todo); ikon baru = ganti/sembunyikan yang lain.
+  (`Store.resync`). Header popover maks. 5 ikon; ikon baru = ganti/sembunyikan yang lain.
 - Salin todo = teks polos "Judul" + baris kosong + detail (`TodoCopy` di Mac, `web/src/copy.js`), selalu dengan
   umpan balik singkat ("Judul & detail disalin"). Di popover Mac: klik teks = salin, ikon ○ = selesai, klik dua kali = ubah.
 - Popover Mac: tab **Chat | Todo | Pengingat**; filter "Selesai" selalu paling ujung (✓ di sana = batalkan selesai).
