@@ -247,6 +247,11 @@ Rancangan: [`../docs/PRD.md`](../docs/PRD.md). Perbarui setiap tugas selesai.
       Esc lagi = tutup; ganti tab = tutup. Urutan manual nonaktif selama mencari. Tombol 🗑 kini hanya tampil di tab
       Chat (slotnya dipakai 🔍). Logika `TextSearch` (Client.swift) diuji di `Tests/ClientCheck`
 - [ ] Uji manual di Mac sungguhan: ⌘F di tab Todo & Pengingat, ketik / ⓧ / Esc, sinkron saat mencari
+- [x] 0.18.0: popover Mac — tombol **↻ sinkron ulang** di samping ⚙ (⌘R; juga "Sinkronkan sekarang" di menu klik
+      kanan ikon menu bar): ambil ulang todo, pengingat, dan riwayat chat (tab Chat) dari server; hasil di baris status
+      ("Data sudah terbaru" / "Gagal sinkron: …"). Long-poll yang sedang jeda karena offline dimulai ulang. Lebar tab
+      header 88 → 80 supaya muat
+- [ ] Uji manual di Mac sungguhan: ↻ / ⌘R di ketiga tab, matikan Wi-Fi → ↻ → nyalakan → ↻ langsung tersinkron
 
 ## Berikutnya
 
