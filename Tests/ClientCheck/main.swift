@@ -38,6 +38,20 @@ let placed = ManualOrder.place([3, 1], in: [9, 1, 7, 3, 8], keep: [1, 3, 7, 9])
 check(placed == [9, 7, 3, 1], "simpan urutan kelompok: kelompok lain tetap, id yang hilang dibuang (\(placed))")
 check(ManualOrder.reset([3, 1], in: [9, 3, 1]) == [9], "kembalikan kelompok ke urutan bawaan")
 
+// Cari di popover: semua kata harus ada (urutan bebas), abaikan huruf besar/kecil & aksen
+let sTodo = Todo(id: 1, title: "Meeting Singapay dengan Irish", notes: "bahas split payment", status: "open",
+                 priority: "", list: "Kerja", dueDate: "", dueTime: "")
+check(TextSearch.matches(sTodo, query: ""), "cari kosong → semua cocok")
+check(TextSearch.matches(sTodo, query: "  singapay  "), "cari judul, abaikan huruf besar & spasi")
+check(TextSearch.matches(sTodo, query: "payment split"), "cari di detail, urutan kata bebas")
+check(TextSearch.matches(sTodo, query: "kerja irish"), "cari kategori + judul")
+check(!TextSearch.matches(sTodo, query: "singapay biller"), "satu kata tidak ada → tidak cocok")
+check(TextSearch.matches(["Café Kopi"], query: "cafe"), "aksen diabaikan")
+let sRem = Reminder(id: 2, todoId: 1, title: "Siapkan bahan", message: "slide demo", nextFireAt: "", active: true, scheduleText: "Tiap hari 08:00")
+check(TextSearch.matches(sRem, todoTitle: sTodo.title, query: "singapay"), "pengingat cocok lewat judul todo terkait")
+check(TextSearch.matches(sRem, query: "demo tiap"), "pengingat: cari pesan & jadwal")
+check(!TextSearch.matches(sRem, query: "singapay"), "tanpa judul todo terkait → tidak cocok")
+
 guard let base = ServerURL.normalize(env["AITODO_URL"] ?? ""), let user = env["AITODO_USER"], let pass = env["AITODO_PASS"] else {
     print("set AITODO_URL, AITODO_USER, AITODO_PASS"); exit(2)
 }

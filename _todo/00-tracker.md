@@ -240,6 +240,13 @@ Rancangan: [`../docs/PRD.md`](../docs/PRD.md). Perbarui setiap tugas selesai.
       bawaannya (menurut waktu). Logika `ManualOrder` (Client.swift) diuji di `Tests/ClientCheck`
 - [ ] Uji manual di Mac sungguhan: tahan ⌃ lalu seret ≡ (juga ⌃-klik tidak membuka menu di pegangan), urutan
       bertahan setelah sinkron & buka-tutup popover
+- [x] 0.17.0: popover Mac — **cari** di tab Todo & Pengingat: tombol 🔍 di header (⌘F) membuka kolom cari di atas
+      filter (bawaan tersembunyi). Menyaring daftar yang sedang tampil (Hari ini / Semua / Selesai) — todo: judul,
+      detail, kategori; pengingat: judul, pesan, jadwal, judul todo terkait. Semua kata harus ada (urutan bebas, abaikan
+      huruf besar & aksen); angka di filter ikut hasil; hasil di luar filter → tautan "… cocok di Semua". Esc = kosongkan,
+      Esc lagi = tutup; ganti tab = tutup. Urutan manual nonaktif selama mencari. Tombol 🗑 kini hanya tampil di tab
+      Chat (slotnya dipakai 🔍). Logika `TextSearch` (Client.swift) diuji di `Tests/ClientCheck`
+- [ ] Uji manual di Mac sungguhan: ⌘F di tab Todo & Pengingat, ketik / ⓧ / Esc, sinkron saat mencari
 
 ## Berikutnya
 
