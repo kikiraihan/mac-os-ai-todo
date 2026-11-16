@@ -562,6 +562,35 @@ enum ManualOrder {
     }
 }
 
+// MARK: - Cari di popover (tab Todo & Pengingat)
+
+/// Pencocokan kata kunci: dipecah per spasi, setiap kata harus ada di salah satu kolom
+/// (urutan bebas; huruf besar/kecil & aksen diabaikan). Kata kunci kosong = semua cocok.
+enum TextSearch {
+    static func normalize(_ s: String) -> String {
+        s.folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: Locale(identifier: "id_ID"))
+    }
+
+    static func terms(_ query: String) -> [String] {
+        normalize(query).split(whereSeparator: { $0.isWhitespace }).map(String.init)
+    }
+
+    static func matches(_ fields: [String], query: String) -> Bool {
+        let words = terms(query)
+        guard !words.isEmpty else { return true }
+        let text = fields.map(normalize).joined(separator: "\n")
+        return words.allSatisfy { text.contains($0) }
+    }
+
+    /// Todo: judul, detail, kategori.
+    static func matches(_ t: Todo, query: String) -> Bool { matches([t.title, t.notes, t.list], query: query) }
+
+    /// Pengingat: judul, pesan, jadwal, dan judul todo terkait (bila ada).
+    static func matches(_ r: Reminder, todoTitle: String? = nil, query: String) -> Bool {
+        matches([r.title, r.message, r.scheduleText, todoTitle ?? ""], query: query)
+    }
+}
+
 // MARK: - Notifikasi lokal yang perlu dijadwalkan
 
 struct PlannedNotification: Equatable {

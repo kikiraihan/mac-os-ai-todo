@@ -1096,6 +1096,16 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
     }()
     /// Kartu tambah terbuka? Bawaan tertutup supaya daftar tetap ringkas.
     private var addCardOpen = false
+    /// Tombol 🔍 di header (tab Todo & Pengingat): buka / tutup kolom cari (⌘F). Bawaan tertutup.
+    private lazy var searchButton: NSButton = {
+        let b = UI.iconButton("magnifyingglass", tip: "Cari (⌘F)", self, #selector(toggleSearch))
+        b.keyEquivalent = "f"
+        b.keyEquivalentModifierMask = .command
+        return b
+    }()
+    /// Kolom cari di atas filter: menyaring daftar yang sedang tampil (judul, detail, kategori / pesan, jadwal).
+    private let searchField = NSSearchField()
+    private var searchOpen = false
 
     // Manual
     private let titleField = NSTextField()
@@ -1137,8 +1147,10 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
     private var loadingDone = false
     /// Kartu tambah cepat; di tab Todo & Pengingat (bukan filter Selesai).
     private let addCard = RoundedBox(fill: .controlBackgroundColor, stroke: .separatorColor, radius: 12)
-    private lazy var scopeBelowCard = scope.topAnchor.constraint(equalTo: addHost.bottomAnchor, constant: 12)
-    private lazy var scopeAtTop = scope.topAnchor.constraint(equalTo: manualBox.topAnchor, constant: 12)
+    /// Kolom cari (bila terbuka) + filter; stack menyembunyikan kolom cari tanpa menyisakan ruang.
+    private lazy var filterBar = UI.stack([searchField, scope], spacing: 8)
+    private lazy var scopeBelowCard = filterBar.topAnchor.constraint(equalTo: addHost.bottomAnchor, constant: 12)
+    private lazy var scopeAtTop = filterBar.topAnchor.constraint(equalTo: manualBox.topAnchor, constant: 12)
     /// Batas baris di tampilan Semua; sisanya lewat tautan ke browser.
     static let maxAllRows = 200
     // Mode ubah
@@ -1192,7 +1204,7 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         segment.translatesAutoresizingMaskIntoConstraints = false
         let web = UI.iconButton("globe", tip: "Buka AI Todo di browser", self, #selector(openWeb))
         let gear = UI.iconButton("gearshape", tip: "Pengaturan (⌘,)", self, #selector(openSettings))
-        let header = UI.stack([segment, NSView(), clearButton, newTodoButton, web, gear], vertical: false, spacing: 4)
+        let header = UI.stack([segment, NSView(), clearButton, searchButton, newTodoButton, web, gear], vertical: false, spacing: 4)
         header.translatesAutoresizingMaskIntoConstraints = false
         let line = NSBox()
         line.boxType = .separator
@@ -1418,6 +1430,8 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         updateSuggestions()
         // Hapus riwayat: hanya di tab Chat, saat terhubung, dan tidak sedang menunggu server
         clearButton.isEnabled = !busy && store.connected && mode == .chat
+        // Di tab Todo & Pengingat tempatnya dipakai tombol cari (header muat 4 ikon)
+        clearButton.isHidden = mode != .chat
     }
 
     private func setBatch(_ b: BatchView?) {
@@ -1579,6 +1593,13 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         scope.target = self
         scope.action = #selector(scopeChanged)
         configureScope()
+        searchField.controlSize = .small
+        searchField.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        searchField.sendsSearchStringImmediately = true
+        searchField.delegate = self // Esc = kosongkan lalu tutup
+        searchField.target = self   // ketik / tombol ⓧ = saring ulang
+        searchField.action = #selector(searchFieldChanged)
+        searchField.isHidden = true
         // ⌥ ditahan → lingkaran berubah jadi ✎ (pola tombol alternatif ⌥ di macOS)
         // ⌃ ditahan → lingkaran berubah jadi ≡ (seret untuk mengubah urutan)
         flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] e in
@@ -1607,7 +1628,7 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         UI.pin(card, to: addHost)
 
         listStack.edgeInsets = NSEdgeInsets(top: 4, left: i, bottom: 12, right: i)
-        for v in [addHost, scope, listScroll, syncLabel] as [NSView] {
+        for v in [addHost, filterBar, listScroll, syncLabel] as [NSView] {
             v.translatesAutoresizingMaskIntoConstraints = false
             manualBox.addSubview(v)
         }
@@ -1615,8 +1636,10 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
             addHost.topAnchor.constraint(equalTo: manualBox.topAnchor, constant: 12),
             addHost.leadingAnchor.constraint(equalTo: manualBox.leadingAnchor, constant: i),
             addHost.trailingAnchor.constraint(equalTo: manualBox.trailingAnchor, constant: -i),
-            scope.leadingAnchor.constraint(equalTo: manualBox.leadingAnchor, constant: i),
-            listScroll.topAnchor.constraint(equalTo: scope.bottomAnchor, constant: 2),
+            filterBar.leadingAnchor.constraint(equalTo: manualBox.leadingAnchor, constant: i),
+            filterBar.trailingAnchor.constraint(equalTo: manualBox.trailingAnchor, constant: -i),
+            searchField.widthAnchor.constraint(equalTo: filterBar.widthAnchor),
+            listScroll.topAnchor.constraint(equalTo: filterBar.bottomAnchor, constant: 2),
             listScroll.leadingAnchor.constraint(equalTo: manualBox.leadingAnchor),
             listScroll.trailingAnchor.constraint(equalTo: manualBox.trailingAnchor),
             listScroll.bottomAnchor.constraint(equalTo: syncLabel.topAnchor, constant: -6),
@@ -1645,6 +1668,8 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         scope.selectedSegment = mode == .reminders ? LocalPrefs.reminderScope : LocalPrefs.todoScope
         scope.menu = mode == .todo ? todoGroupMenu : nil // klik kanan filter = pilih cara mengelompokkan todo
         scope.setAccessibilityLabel(mode == .reminders ? "Tampilkan pengingat" : "Tampilkan todo")
+        searchField.placeholderString = mode == .reminders ? "Cari judul, pesan, atau todo" : "Cari judul, detail, atau kategori"
+        searchField.setAccessibilityLabel(mode == .reminders ? "Cari pengingat" : "Cari todo")
         scope.toolTip = mode == .reminders
             ? "Hari ini: pengingat tanpa todo yang berbunyi hari ini. Semua: semua pengingat aktif, termasuk milik todo. " +
               "Selesai: dijeda / sudah berbunyi (✓ = aktifkan lagi)."
@@ -1661,6 +1686,11 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         newTodoButton.toolTip = addCardOpen ? "Tutup form \(noun.lowercased()) baru (Esc)"
                                             : "\(noun) baru (⌘N) · ⌥-klik: isian lengkap"
         newTodoButton.setAccessibilityLabel(addCardOpen ? "Tutup form \(noun.lowercased()) baru" : "\(noun) baru")
+        searchButton.isHidden = mode == .chat
+        searchButton.contentTintColor = searchOpen ? Theme.accent : .secondaryLabelColor
+        searchButton.toolTip = searchOpen ? "Tutup pencarian (Esc)" : "Cari \(noun.lowercased()) (⌘F)"
+        searchButton.setAccessibilityLabel(searchOpen ? "Tutup pencarian" : "Cari \(noun.lowercased())")
+        searchField.isHidden = !searchOpen || mode == .chat
         let card = canAdd && addCardOpen
         addHost.isHidden = !card
         scopeBelowCard.isActive = card
@@ -1786,6 +1816,67 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         view.window?.makeFirstResponder(open ? titleField : nil)
     }
 
+    // MARK: Cari (tombol 🔍 / ⌘F)
+
+    /// ⌘F / 🔍: buka kolom cari & fokus; sudah terbuka tapi tidak fokus → fokus saja; selain itu tutup.
+    @objc private func toggleSearch() {
+        guard mode != .chat else { return }
+        if searchOpen && !searchFocused && NSApp.currentEvent?.type == .keyDown {
+            view.window?.makeFirstResponder(searchField)
+            return
+        }
+        setSearch(open: !searchOpen)
+    }
+
+    private func setSearch(open: Bool) {
+        let hadQuery = searching
+        searchOpen = open
+        if !open { searchField.stringValue = "" }
+        updateAddCard()
+        if open { view.window?.makeFirstResponder(searchField) }
+        else if searchFocused { view.window?.makeFirstResponder(nil) }
+        if hadQuery != searching { searchChanged() }
+    }
+
+    /// Kursor sedang di kolom cari (yang aktif sebenarnya field editor milik kolom itu).
+    private var searchFocused: Bool {
+        guard let fieldEditor = view.window?.firstResponder as? NSText else { return false }
+        return (fieldEditor.delegate as? NSSearchField) === searchField
+    }
+
+    /// Kata kunci yang sedang dipakai ("" = tidak menyaring).
+    private var query: String { searchOpen && mode != .chat ? searchField.stringValue : "" }
+    private var searching: Bool { !TextSearch.terms(query).isEmpty }
+
+    /// Todo terbuka yang cocok dengan pencarian (semua bila tidak mencari).
+    private var buckets: TodoBuckets {
+        guard searching else { return store.buckets }
+        let q = query
+        return TodoBuckets(store.todos.filter { TextSearch.matches($0, query: q) }, now: Date(), tz: store.tz)
+    }
+
+    private func filtered(_ list: [Reminder]) -> [Reminder] {
+        guard searching else { return list }
+        let q = query
+        return list.filter { r in
+            TextSearch.matches(r, todoTitle: r.todoId.flatMap { id in store.todos.first { $0.id == id }?.title }, query: q)
+        }
+    }
+
+    private var noMatchText: String {
+        "Tidak ada \(mode == .reminders ? "pengingat" : "todo") yang cocok dengan “\(query.trimmingCharacters(in: .whitespaces))”."
+    }
+
+    @objc private func searchFieldChanged() { searchChanged() }
+
+    /// Ketik di kolom cari → saring ulang daftar (kartu ubah ditutup, sama seperti ganti filter).
+    private func searchChanged() {
+        editor = nil
+        rebuildList()
+        listScroll.contentView.scroll(to: .zero)
+        listScroll.reflectScrolledClipView(listScroll.contentView)
+    }
+
     // MARK: Isian lengkap (form lengkap di tempat kartu cepat)
 
     /// Tanggal (YYYY-MM-DD) dari pilihan Kapan di kartu cepat; "" = tanpa tenggat / tiap hari.
@@ -1902,7 +1993,7 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         reminderChecks = []
         reorderGroups = []
         rowViews = [:]
-        let b = store.buckets
+        let b = buckets
         updateScopeLabels(b)
         if mode == .reminders { return rebuildReminders() }
         if showDone { return rebuildDone() }
@@ -1957,7 +2048,7 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
     private func updateScopeLabels(_ b: TodoBuckets) {
         if mode == .reminders {
             guard scope.segmentCount == 3 else { return }
-            let today = todayReminders.count, all = store.activeReminders.count
+            let today = todayReminders.count, all = filtered(store.activeReminders).count
             scope.setLabel("Hari ini" + (today > 0 ? "  \(today)" : ""), forSegment: 0)
             scope.setLabel("Semua" + (all > 0 ? "  \(all)" : ""), forSegment: 1)
             return
@@ -1969,8 +2060,11 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
 
     /// Selesai: todo yang sudah selesai, terbaru di atas. Klik ✓ = buka lagi (batalkan yang salah ditandai).
     private func rebuildDone() {
+        let q = query
+        let doneTodos = searching ? self.doneTodos.filter { TextSearch.matches($0, query: q) } : self.doneTodos
         if doneTodos.isEmpty {
-            addListRow(UI.label(loadingDone ? "Memuat…" : "Belum ada todo yang selesai.", size: 12, color: .secondaryLabelColor))
+            addListRow(UI.text(loadingDone ? "Memuat…" : searching ? noMatchText : "Belum ada todo yang selesai.",
+                               width: PopoverController.contentWidth, size: 12, color: .secondaryLabelColor))
             return
         }
         addListRow(UI.label("Klik ✓ untuk membuka lagi todo yang salah ditandai selesai.", size: 11, color: .tertiaryLabelColor))
@@ -2090,10 +2184,15 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
     /// Hari ini: tetap ringkas — terlambat & hari ini.
     private func rebuildToday(_ b: TodoBuckets) {
         if b.overdue.isEmpty && b.today.isEmpty {
-            addListRow(UI.label("Tidak ada todo untuk hari ini. Tambah di atas, atau minta asisten di tab Chat.", size: 12,
-                                color: .secondaryLabelColor))
+            addListRow(UI.text(searching ? noMatchText : "Tidak ada todo untuk hari ini. Tambah di atas, atau minta asisten di tab Chat.",
+                               width: PopoverController.contentWidth, size: 12, color: .secondaryLabelColor))
             let later = b.upcoming.count + b.noDate.count
-            if later > 0 { addListRow(linkButton("Lihat \(later) todo lainnya", #selector(showAllTapped))) }
+            if later > 0 {
+                addListRow(linkButton(searching ? "Lihat \(later) yang cocok di Semua" : "Lihat \(later) todo lainnya",
+                                      #selector(showAllTapped)))
+            }
+        } else if searching, b.upcoming.count + b.noDate.count > 0 {
+            addListRow(linkButton("\(b.upcoming.count + b.noDate.count) lainnya cocok di Semua", #selector(showAllTapped)))
         }
     }
 
@@ -2107,7 +2206,7 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
     /// Hari ini: pengingat tanpa todo yang aktif dan berbunyi hari ini (atau terlewat / tanpa jadwal berikutnya).
     private var todayReminders: [Reminder] {
         let today = Clock.ymd(Date(), store.tz)
-        return store.looseReminders.active.filter { r in
+        return filtered(store.looseReminders.active).filter { r in
             guard let d = Clock.parseStamp(r.nextFireAt) else { return true }
             return Clock.ymd(d, store.tz) <= today
         }
@@ -2121,15 +2220,19 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         if showAllReminders {
             rebuildAllReminders()
         } else {
-            let list = showDone ? store.looseReminders.paused
+            let list = showDone ? filtered(store.looseReminders.paused)
                                 : ManualOrder.apply(todayReminders, order: LocalPrefs.reminderOrder, id: \.id)
             if list.isEmpty {
-                let later = store.activeReminders.count
-                addListRow(UI.text(showDone ? "Belum ada pengingat yang selesai."
+                let later = filtered(store.activeReminders).count
+                addListRow(UI.text(searching ? noMatchText
+                                            : showDone ? "Belum ada pengingat yang selesai."
                                             : later > 0 ? "Tidak ada pengingat untuk hari ini."
                                             : "Belum ada pengingat aktif. Tekan ＋ di atas, atau minta asisten di tab Chat, mis. “ingatkan minum obat tiap hari jam 8”.",
                                    width: PopoverController.contentWidth, size: 12, color: .secondaryLabelColor))
-                if !showDone && later > 0 { addListRow(linkButton("Lihat \(later) pengingat lainnya", #selector(showAllTapped))) }
+                if !showDone && later > 0 {
+                    addListRow(linkButton(searching ? "Lihat \(later) yang cocok di Semua" : "Lihat \(later) pengingat lainnya",
+                                          #selector(showAllTapped)))
+                }
             } else {
                 if showDone {
                     addListRow(UI.label("Klik ✓ untuk mengaktifkan lagi pengingat.", size: 11, color: .tertiaryLabelColor))
@@ -2141,6 +2244,10 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
                     items.append((r.id, row))
                 }
                 if !showDone { addReorderGroup(items, reminders: true) }
+                let later = filtered(store.activeReminders).count - list.count
+                if searching && !showDone && later > 0 {
+                    addListRow(linkButton("\(later) lainnya cocok di Semua", #selector(showAllTapped)))
+                }
             }
         }
         let links = UI.stack([linkButton("Pengingat baru…", #selector(newReminder)),
@@ -2154,9 +2261,9 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
 
     /// Semua: semua pengingat aktif per hari (Hari ini, Besok, Kam 12 Nov, …), lalu yang tanpa jadwal berikutnya.
     private func rebuildAllReminders() {
-        let all = store.activeReminders
+        let all = filtered(store.activeReminders)
         if all.isEmpty {
-            addListRow(UI.text("Belum ada pengingat aktif. Tekan ＋ di atas, atau minta asisten di tab Chat, mis. “ingatkan minum obat tiap hari jam 8”.",
+            addListRow(UI.text(searching ? noMatchText : "Belum ada pengingat aktif. Tekan ＋ di atas, atau minta asisten di tab Chat, mis. “ingatkan minum obat tiap hari jam 8”.",
                                width: PopoverController.contentWidth, size: 12, color: .secondaryLabelColor))
             return
         }
@@ -2289,8 +2396,8 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
     /// Semua: semua todo terbuka — terlambat, hari ini, per tanggal (Besok, Rab 5 Nov, …), lalu tanpa tenggat.
     private func rebuildAll(_ b: TodoBuckets) {
         if b.total == 0 {
-            addListRow(UI.label("Semua todo sudah selesai. Tambah di atas, atau minta asisten di tab Chat.", size: 12,
-                                color: .secondaryLabelColor))
+            addListRow(UI.text(searching ? noMatchText : "Semua todo sudah selesai. Tambah di atas, atau minta asisten di tab Chat.",
+                               width: PopoverController.contentWidth, size: 12, color: .secondaryLabelColor))
             return
         }
         var left = max(0, PopoverController.maxAllRows - b.overdue.count - b.today.count)
@@ -2550,12 +2657,12 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
     // MARK: Mode urutkan (tahan ⌃ lalu seret ≡, atau klik kanan → Urutkan)
 
     /// Urutan manual hanya di daftar todo / pengingat yang masih aktif (bukan filter Selesai) dan tidak sedang mengubah.
-    private var reorderMode: Bool { controlDown && !optionDown && mode != .chat && !showDone && editor == nil }
+    private var reorderMode: Bool { controlDown && !optionDown && mode != .chat && !showDone && editor == nil && !searching }
 
     /// Catat satu kelompok baris yang bisa diurutkan + pasang submenu "Urutkan" di menu klik kanan tiap baris
     /// (jalan lain selain seret: Paling atas / Naikkan / Turunkan / Paling bawah / Urutan bawaan).
     private func addReorderGroup(_ items: [(id: Int64, view: NSView)], reminders: Bool) {
-        guard !items.isEmpty else { return }
+        guard !items.isEmpty, !searching else { return } // saat mencari kelompok hanya sebagian → tidak diurutkan
         reorderGroups.append((reminders, items))
         let saved = Set(reminders ? LocalPrefs.reminderOrder : LocalPrefs.todoOrder)
         let custom = items.contains { saved.contains($0.id) }
@@ -2814,7 +2921,7 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         // Selama mengubah, daftar tidak dibangun ulang (isi kartu ubah tidak boleh hilang karena sinkron),
         // kecuali todo yang diubah sudah tidak ada (selesai / dihapus di perangkat lain).
         if let editor, store.todos.contains(where: { $0.id == editor.todo.id }) {
-            updateScopeLabels(store.buckets)
+            updateScopeLabels(buckets)
         } else {
             editor = nil
             rebuildList()
@@ -2830,7 +2937,7 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
 
     func select(_ m: Mode) {
         _ = view
-        if m != mode { editor = nil; addCardOpen = false; closeAdvanced(focus: false) }
+        if m != mode { editor = nil; addCardOpen = false; closeAdvanced(focus: false); searchOpen = false; searchField.stringValue = "" }
         mode = m
         segment.selectedSegment = m.rawValue
         configureScope()
@@ -2856,6 +2963,8 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
             view.window?.makeFirstResponder(editor.titleField)
         } else if mode != .chat && !showDone && addCardOpen {
             view.window?.makeFirstResponder(advancedTitleField ?? titleField)
+        } else if mode != .chat && searchOpen {
+            view.window?.makeFirstResponder(searchField)
         } else {
             view.window?.makeFirstResponder(nil) // kartu tambah tertutup / filter Selesai
         }
@@ -3194,11 +3303,19 @@ extension PopoverController: NSPopoverDelegate {
     }
 }
 
+/// Kolom cari popover (NSSearchField butuh delegate NSSearchFieldDelegate; isinya di NSTextFieldDelegate di bawah).
+extension PopoverController: NSSearchFieldDelegate {}
+
 extension PopoverController: NSTextFieldDelegate {
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
         // Esc di kartu tambah cepat = tutup kartu (Esc berikutnya baru menutup popover)
         if control === titleField, selector == #selector(NSResponder.cancelOperation(_:)) {
             setAddCard(open: false)
+            return true
+        }
+        // Esc di kolom cari: kosongkan dulu, Esc berikutnya menutup kolom cari
+        if control === searchField, selector == #selector(NSResponder.cancelOperation(_:)) {
+            if searchField.stringValue.isEmpty { setSearch(open: false) } else { searchField.stringValue = ""; searchChanged() }
             return true
         }
         guard control === input, selector == #selector(NSResponder.insertNewline(_:)),
