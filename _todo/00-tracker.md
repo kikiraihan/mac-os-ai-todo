@@ -256,6 +256,10 @@ Rancangan: [`../docs/PRD.md`](../docs/PRD.md). Perbarui setiap tugas selesai.
       balik tombol 🔍 (tombolnya dihapus dari header). Popover dibuka / kartu tambah ditutup → kursor langsung di kolom
       cari, tinggal mengetik; ⌘F = fokus lagi (isi lama terpilih). Esc kosongkan, Esc lagi = tutup popover
 - [ ] Uji manual di Mac sungguhan: buka popover tab Todo → langsung ketik; ⌘N / ＋ lalu Esc → kembali ke kolom cari
+- [x] 0.19.0: popover Mac — privasi **Sembunyikan isi chat** (Pengaturan → Umum, bawaan mati): setiap popover dibuka,
+      riwayat chat ditutupi panel kecil "Percakapan disembunyikan" + tombol "Tampilkan percakapan"; kotak input tetap
+      bisa dipakai (mengirim pesan = percakapan ikut tampil). Popover ditutup → tertutup lagi (`LocalPrefs.hideChat`)
+- [ ] Uji manual di Mac sungguhan: nyalakan sakelar → buka popover tab Chat (⌥⌘T) → tertutup; Tampilkan / kirim pesan
 
 ## Berikutnya
 

@@ -131,6 +131,13 @@ enum LocalPrefs {
         set { d.set(newValue, forKey: "showSuggestions") }
     }
 
+    /// Privasi: isi chat disembunyikan setiap popover dibuka, tampil setelah "Tampilkan percakapan" diklik
+    /// (bawaan mati = langsung tampil seperti biasa). Diatur di Pengaturan → Umum.
+    static var hideChat: Bool {
+        get { flag("hideChat", default: false) }
+        set { d.set(newValue, forKey: "hideChat") }
+    }
+
     /// Id kartu aksi yang bar undo-nya sudah ditutup (✕), supaya tidak muncul lagi saat riwayat dimuat ulang.
     static var dismissedUndoBatch: Int64 {
         get { Int64(d.integer(forKey: "dismissedUndoBatch")) }
@@ -1096,6 +1103,10 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         return b
     }()
     private var thinkingRow: NSView?
+    /// Privasi (`LocalPrefs.hideChat`): penutup riwayat chat sampai "Tampilkan percakapan" diklik.
+    /// Input tetap bisa dipakai; mengirim pesan = percakapan ikut tampil. Tertutup lagi setiap popover ditutup.
+    private let chatCover = NSView()
+    private var chatRevealed = false
     private var pending: BatchView?
     private var undoable: BatchView?
     private var busy = false { didSet { updateControls() } }
@@ -1331,6 +1342,7 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         UI.pin(chatScroll, to: chatBox)
         chatBottom.translatesAutoresizingMaskIntoConstraints = false
         chatBox.addSubview(chatBottom) // setelah scroll → di atasnya
+        buildChatCover()
         NSLayoutConstraint.activate([
             chatBottom.leadingAnchor.constraint(equalTo: chatBox.leadingAnchor, constant: i),
             chatBottom.trailingAnchor.constraint(equalTo: chatBox.trailingAnchor, constant: -i),
@@ -1338,6 +1350,47 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         ])
         resizeInput()
         updateControls()
+    }
+
+    /// Penutup privasi: ikon, satu kalimat, dan satu tombol — di area riwayat (input tetap di bawahnya).
+    private func buildChatCover() {
+        let icon = NSImageView(image: UI.symbol("eye.slash", 26) ?? NSImage())
+        icon.contentTintColor = .tertiaryLabelColor
+        let title = UI.label("Percakapan disembunyikan", size: 13, weight: .semibold, color: .secondaryLabelColor)
+        let show = NSButton(title: "Tampilkan percakapan", target: self, action: #selector(revealChat))
+        show.bezelStyle = .rounded
+        show.controlSize = .small
+        show.toolTip = "Sembunyikan otomatis bisa dimatikan di Pengaturan → Umum"
+        let s = UI.stack([icon, title, show], spacing: 8)
+        s.alignment = .centerX
+        s.setCustomSpacing(12, after: title)
+        s.translatesAutoresizingMaskIntoConstraints = false
+        chatCover.addSubview(s)
+        chatCover.translatesAutoresizingMaskIntoConstraints = false
+        chatBox.addSubview(chatCover, positioned: .below, relativeTo: chatBottom)
+        NSLayoutConstraint.activate([
+            chatCover.topAnchor.constraint(equalTo: chatBox.topAnchor),
+            chatCover.leadingAnchor.constraint(equalTo: chatBox.leadingAnchor),
+            chatCover.trailingAnchor.constraint(equalTo: chatBox.trailingAnchor),
+            chatCover.bottomAnchor.constraint(equalTo: chatBottom.topAnchor),
+            s.centerXAnchor.constraint(equalTo: chatCover.centerXAnchor),
+            s.centerYAnchor.constraint(equalTo: chatCover.centerYAnchor),
+        ])
+    }
+
+    /// Riwayat chat tertutup? (pengaturan privasi aktif & belum diklik "Tampilkan percakapan")
+    private var chatHidden: Bool { LocalPrefs.hideChat && !chatRevealed }
+
+    private func updateChatCover() {
+        chatCover.isHidden = !chatHidden
+        chatScroll.isHidden = chatHidden
+    }
+
+    @objc private func revealChat() {
+        chatRevealed = true
+        updateChatCover()
+        UI.scrollToBottom(chatScroll)
+        view.window?.makeFirstResponder(input)
     }
 
     /// Sesuaikan tinggi input dengan isinya (1 … inputMaxLines baris); lebih dari itu input menggulir.
@@ -1448,6 +1501,7 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         // Di tab Todo & Pengingat tempatnya dipakai tombol cari
         clearButton.isHidden = mode != .chat
         resyncButton.isHidden = !store.connected
+        updateChatCover()
     }
 
     private func setBatch(_ b: BatchView?) {
@@ -1507,6 +1561,7 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         guard !text.isEmpty, !busy, store.connected else { return }
         input.stringValue = ""
         resizeInput()
+        if chatHidden { revealChat() } // pengguna sendiri yang mulai bicara → percakapan ikut tampil
         addUser(text)
         busy = true
         setThinking(true)
@@ -2967,6 +3022,8 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
     override func viewWillDisappear() {
         super.viewWillDisappear()
         closeDetail()
+        chatRevealed = false // privasi: dibuka lagi = percakapan tertutup lagi
+        updateChatCover()
     }
 
     /// Popover baru tampil: fokus ke input & muat riwayat chat terbaru.
@@ -4899,6 +4956,7 @@ final class SettingsWindow: NSObject {
     private lazy var notifySwitch = Form.toggle(self, #selector(notifyChanged(_:)))
     private lazy var loginSwitch = Form.toggle(self, #selector(loginChanged(_:)))
     private lazy var suggestSwitch = Form.toggle(self, #selector(suggestChanged(_:)))
+    private lazy var hideChatSwitch = Form.toggle(self, #selector(hideChatChanged(_:)))
     /// Kelompokkan daftar todo di popover: Waktu | Kategori.
     private lazy var groupControl: NSSegmentedControl = {
         let c = NSSegmentedControl(labels: ["Waktu", "Kategori"], trackingMode: .selectOne, target: self, action: #selector(groupChanged(_:)))
@@ -4962,6 +5020,7 @@ final class SettingsWindow: NSObject {
             Form.section("Menu bar", [
                 Form.row("Tampilkan jumlah todo", "Angka todo hari ini + terlambat di samping ikon ✓.", badgeSwitch),
                 Form.row("Pintasan ⌥⌘T", "Buka / tutup asisten dari aplikasi mana pun.", hotkeySwitch),
+                Form.row("Sembunyikan isi chat", "Privasi: setiap popover dibuka, percakapan tertutup sampai “Tampilkan percakapan” diklik.", hideChatSwitch),
                 Form.row("Contoh pertanyaan", "Tombol cepat di atas kotak chat, mis. “Apa saja todo hari ini?”.", suggestSwitch),
                 Form.row("Kelompokkan todo", "Daftar di tab Todo: per waktu (tanggal) atau per kategori. Juga lewat klik kanan filter.", groupControl),
             ]),
@@ -4982,6 +5041,7 @@ final class SettingsWindow: NSObject {
         hotkeySwitch.state = LocalPrefs.hotkey ? .on : .off
         notifySwitch.state = LocalPrefs.notifications ? .on : .off
         suggestSwitch.state = LocalPrefs.showSuggestions ? .on : .off
+        hideChatSwitch.state = LocalPrefs.hideChat ? .on : .off
         groupControl.selectedSegment = LocalPrefs.todoGroup
         loginSwitch.state = SMAppService.mainApp.status == .enabled ? .on : .off
 
@@ -5052,6 +5112,7 @@ final class SettingsWindow: NSObject {
 
     @objc func badgeChanged(_ s: NSSwitch) { if (s.state == .on) != LocalPrefs.showBadge { app.toggleBadge() } }
     @objc func hotkeyChanged(_ s: NSSwitch) { if (s.state == .on) != LocalPrefs.hotkey { app.toggleHotkey() } }
+    @objc func hideChatChanged(_ s: NSSwitch) { if (s.state == .on) != LocalPrefs.hideChat { app.toggleHideChat() } }
     @objc func suggestChanged(_ s: NSSwitch) { if (s.state == .on) != LocalPrefs.showSuggestions { app.toggleSuggestions() } }
     @objc func groupChanged(_ c: NSSegmentedControl) { app.setTodoGroup(c.selectedSegment) }
     @objc func notifyChanged(_ s: NSSwitch) { if (s.state == .on) != LocalPrefs.notifications { app.toggleNotifications() } }
@@ -5769,6 +5830,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Contoh pertanyaan di atas input chat: klik kanan chip → sembunyikan, atau Pengaturan → Umum.
     @objc func toggleSuggestions() {
         LocalPrefs.showSuggestions.toggle()
+        stateChanged()
+    }
+
+    /// Privasi: sembunyikan isi chat setiap popover dibuka (Pengaturan → Umum).
+    @objc func toggleHideChat() {
+        LocalPrefs.hideChat.toggle()
         stateChanged()
     }
 
