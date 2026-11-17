@@ -256,6 +256,10 @@ Rancangan: [`../docs/PRD.md`](../docs/PRD.md). Perbarui setiap tugas selesai.
       balik tombol 🔍 (tombolnya dihapus dari header). Popover dibuka / kartu tambah ditutup → kursor langsung di kolom
       cari, tinggal mengetik; ⌘F = fokus lagi (isi lama terpilih). Esc kosongkan, Esc lagi = tutup popover
 - [ ] Uji manual di Mac sungguhan: buka popover tab Todo → langsung ketik; ⌘N / ＋ lalu Esc → kembali ke kolom cari
+- [x] 0.18.2: popover Mac — ikon kiri baris todo & pengingat (○ / ≡ urutkan / ✎ ubah) sejajar rata atas dengan baris
+      pertama judul: kotak ikon tetap 18 × tinggi baris (`ListRow.lineHeight`), ikon di tengahnya — tidak bergeser lagi
+      saat ikon berganti ukuran atau judul berlipat
+- [ ] Uji manual di Mac sungguhan: tab Todo & Pengingat, tahan ⌃ / ⌥ → ikon tetap sejajar dengan baris pertama judul
 
 ## Berikutnya
 
