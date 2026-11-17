@@ -3068,11 +3068,25 @@ final class RowCheck: NSButton {
 /// Baris daftar di popover (○ + teks). ⌃-klik pada pegangan ≡ di mode urutkan tidak membuka menu baris,
 /// supaya tekan-lalu-seret sampai ke `RowCheck`.
 final class ListRow: NSStackView {
+    /// Tinggi satu baris judul (13 pt). Ikon kiri (○ / ≡ / ✎) diberi kotak tetap setinggi baris pertama
+    /// judul dengan ikon di tengahnya, supaya ikon sejajar dengan baris teks pertama — tidak bergeser
+    /// saat ikon berganti ukuran (○ 16 pt ↔ ≡ 14 pt) atau judul berlipat beberapa baris.
+    static let lineHeight = ceil(NSLayoutManager().defaultLineHeight(for: .systemFont(ofSize: 13)))
+    static let iconWidth: CGFloat = 18
+
     static func make(_ views: [NSView]) -> ListRow {
         let r = ListRow(views: views)
         r.orientation = .horizontal
         r.alignment = .top
         r.spacing = 8
+        if let icon = views.first as? NSButton {
+            icon.imagePosition = .imageOnly
+            icon.imageScaling = .scaleProportionallyDown // ikon di tengah kotak; hanya diperkecil bila lebih besar
+            icon.translatesAutoresizingMaskIntoConstraints = false
+            icon.setContentHuggingPriority(.required, for: .horizontal)
+            icon.widthAnchor.constraint(equalToConstant: iconWidth).isActive = true
+            icon.heightAnchor.constraint(equalToConstant: lineHeight).isActive = true
+        }
         return r
     }
 
