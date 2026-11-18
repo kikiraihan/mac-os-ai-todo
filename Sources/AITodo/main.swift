@@ -7,6 +7,7 @@
 //     ubah todo: tahan ⌥ lalu klik ✎, klik dua kali judul, atau klik kanan → Ubah…;
 //     urutkan todo / pengingat: tahan ⌃ lalu seret ≡, atau klik kanan → Urutkan — disimpan di Mac ini);
 //     ⌥⌘T buka / tutup popover
+//     (⇧⌥⌘T = popover di tab terakhir, ⌘1–3 / ⌃⇥ pindah tab; semua bisa diubah di Pengaturan → Pintasan)
 //   • Konfirmasi / undo aksi asisten; klik kanan ikon = menu singkat (Pengaturan, Keluar)
 //   • Jendela Pengaturan terpisah (tab Umum, Todo, Akun, Ingatan, Tentang — pola PasteLAN);
 //     tab Todo = kelola todo lengkap seperti halaman Todo di web
@@ -71,10 +72,21 @@ enum LocalPrefs {
         set { d.set(newValue, forKey: "notifications") }
     }
 
+    /// Sakelar lama "Pintasan ⌥⌘T" (≤0.18); sekarang dipakai hanya sebagai nilai awal pintasan asisten.
     static var hotkey: Bool {
         get { flag("hotkey", default: true) }
         set { d.set(newValue, forKey: "hotkey") }
     }
+
+    /// Pintasan yang diubah di Pengaturan → Pintasan: kunci = `ShortcutAction.rawValue`, nilai = `KeyCombo.stored`,
+    /// "" = dimatikan. Yang tidak ada = bawaan (logika di `Shortcuts`, Client.swift).
+    static var shortcuts: [String: String] {
+        get { d.dictionary(forKey: "shortcuts") as? [String: String] ?? [:] }
+        set { d.set(newValue, forKey: "shortcuts") }
+    }
+
+    /// Pintasan yang berlaku sekarang.
+    static var keys: [ShortcutAction: KeyCombo] { Shortcuts.resolve(shortcuts, chatHotkeyOff: !hotkey) }
 
     /// Filter daftar di tab Manual: false = Hari ini (bawaan), true = Semua.
     /// (Versi ≤0.8.0; sekarang dipakai hanya sebagai nilai awal `manualScope`.)
@@ -399,30 +411,113 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     }
 }
 
+// MARK: - Pintasan papan ketik (AppKit / Carbon; model & validasi di Client.swift)
+
+extension KeyCombo {
+    static func modifiers(_ f: NSEvent.ModifierFlags) -> Int {
+        var m = 0
+        if f.contains(.command) { m |= command }
+        if f.contains(.option) { m |= option }
+        if f.contains(.control) { m |= control }
+        if f.contains(.shift) { m |= shift }
+        return m
+    }
+
+    var modifierMask: NSEvent.ModifierFlags {
+        var f: NSEvent.ModifierFlags = []
+        if mods & KeyCombo.command != 0 { f.insert(.command) }
+        if mods & KeyCombo.option != 0 { f.insert(.option) }
+        if mods & KeyCombo.control != 0 { f.insert(.control) }
+        if mods & KeyCombo.shift != 0 { f.insert(.shift) }
+        return f
+    }
+
+    var carbonMods: UInt32 {
+        var m = 0
+        if mods & KeyCombo.command != 0 { m |= cmdKey }
+        if mods & KeyCombo.option != 0 { m |= optionKey }
+        if mods & KeyCombo.control != 0 { m |= controlKey }
+        if mods & KeyCombo.shift != 0 { m |= shiftKey }
+        return UInt32(m)
+    }
+}
+
+/// Tombol yang memakai pintasan (keyEquivalent + tooltip "Judul (⌘N)"); diperbarui saat pintasan diubah.
+enum KeyBindings {
+    private final class Entry {
+        weak var button: NSButton?
+        let action: ShortcutAction
+        let tip: String?
+        init(_ b: NSButton, _ a: ShortcutAction, _ tip: String?) { button = b; action = a; self.tip = tip }
+    }
+    private static var entries: [Entry] = []
+
+    /// tip nil = tooltip diatur sendiri oleh pemilik tombol.
+    static func bind(_ b: NSButton, _ a: ShortcutAction, tip: String?) {
+        entries.append(Entry(b, a, tip))
+        apply(entries[entries.count - 1], LocalPrefs.keys)
+    }
+
+    static func refresh() {
+        entries.removeAll { $0.button == nil }
+        let keys = LocalPrefs.keys
+        entries.forEach { apply($0, keys) }
+    }
+
+    private static func apply(_ e: Entry, _ keys: [ShortcutAction: KeyCombo]) {
+        guard let b = e.button else { return }
+        let c = keys[e.action]
+        b.keyEquivalent = c?.chars ?? ""
+        b.keyEquivalentModifierMask = c?.modifierMask ?? []
+        guard let tip = e.tip else { return }
+        b.toolTip = c.map { "\(tip) (\($0.display))" } ?? tip
+    }
+}
+
 // MARK: - Hotkey global (Carbon, tanpa izin Aksesibilitas)
 
 final class HotKey {
-    static var action: (() -> Void)?
-    private var ref: EventHotKeyRef?
+    static var action: ((ShortcutAction) -> Void)?
+    /// Pintasan global, urutannya = id hotkey (1, 2, …).
+    private static let globals = ShortcutAction.allCases.filter { $0.isGlobal }
+    private var refs: [EventHotKeyRef] = []
     private var handler: EventHandlerRef?
 
-    /// ⌥⌘T
-    func register() {
-        guard ref == nil else { return }
-        var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
-        InstallEventHandler(GetApplicationEventTarget(), { _, _, _ in
-            DispatchQueue.main.async { HotKey.action?() }
-            return noErr
-        }, 1, &spec, nil, &handler)
-        let id = EventHotKeyID(signature: OSType(0x4149_5444), id: 1) // 'AITD'
-        RegisterEventHotKey(UInt32(kVK_ANSI_T), UInt32(cmdKey | optionKey), id, GetApplicationEventTarget(), 0, &ref)
+    /// Daftarkan pintasan global (bawaan ⌥⌘T asisten, ⇧⌥⌘T popover). Hasil = aksi yang kombinasinya
+    /// tidak bisa didaftarkan (mis. sudah dipakai aplikasi lain).
+    @discardableResult
+    func register(_ keys: [ShortcutAction: KeyCombo]) -> [ShortcutAction] {
+        unregister()
+        if handler == nil {
+            var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+            InstallEventHandler(GetApplicationEventTarget(), { _, event, _ in
+                var id = EventHotKeyID()
+                GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), nil,
+                                  MemoryLayout<EventHotKeyID>.size, nil, &id)
+                let i = Int(id.id) - 1
+                DispatchQueue.main.async {
+                    if HotKey.globals.indices.contains(i) { HotKey.action?(HotKey.globals[i]) }
+                }
+                return noErr
+            }, 1, &spec, nil, &handler)
+        }
+        var failed: [ShortcutAction] = []
+        for (i, a) in HotKey.globals.enumerated() {
+            guard let c = keys[a] else { continue }
+            var ref: EventHotKeyRef?
+            let id = EventHotKeyID(signature: OSType(0x4149_5444), id: UInt32(i + 1)) // 'AITD'
+            if RegisterEventHotKey(UInt32(c.keyCode), c.carbonMods, id, GetApplicationEventTarget(), 0, &ref) == noErr, let ref {
+                refs.append(ref)
+            } else {
+                failed.append(a)
+            }
+        }
+        return failed
     }
 
     func unregister() {
-        if let ref { UnregisterEventHotKey(ref) }
-        if let handler { RemoveEventHandler(handler) }
-        ref = nil
-        handler = nil
+        refs.forEach { UnregisterEventHotKey($0) }
+        refs = []
     }
 }
 
@@ -1104,8 +1199,7 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
     /// ⌥-klik = langsung ke isian lengkap.
     private lazy var newTodoButton: NSButton = {
         let b = UI.iconButton("plus", tip: "Todo baru (⌘N)", self, #selector(toggleAddCard))
-        b.keyEquivalent = "n"
-        b.keyEquivalentModifierMask = .command
+        KeyBindings.bind(b, .newItem, tip: nil) // bawaan ⌘N (Pengaturan → Pintasan); tooltip di updateAddCard
         return b
     }()
     /// Kartu tambah terbuka? Bawaan tertutup supaya daftar tetap ringkas.
@@ -1113,8 +1207,7 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
     /// Tombol ↻ di header (di samping ⚙): sinkron ulang data dari server sekarang (⌘R).
     private lazy var resyncButton: NSButton = {
         let b = UI.iconButton("arrow.clockwise", tip: "Sinkronkan ulang dari server (⌘R)", self, #selector(resyncTapped))
-        b.keyEquivalent = "r"
-        b.keyEquivalentModifierMask = .command
+        KeyBindings.bind(b, .resync, tip: "Sinkronkan ulang dari server") // bawaan ⌘R
         return b
     }()
     /// Kolom cari di samping filter, selalu tampil di tab Todo & Pengingat (dulu di balik tombol 🔍):
@@ -1620,13 +1713,13 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         searchField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         scope.setContentHuggingPriority(.required, for: .horizontal)
         scope.setContentCompressionResistancePriority(.required, for: .horizontal)
-        // ⌘F = fokus ke kolom cari (pintasan standar macOS)
+        // ⌘F = fokus ke kolom cari (pintasan standar macOS); ⌘1 / ⌘2 / ⌘3 = pindah tab,
+        // ⌃⇥ / ⌃⇧⇥ = tab berikutnya / sebelumnya. Semua bisa diubah di Pengaturan → Pintasan.
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
-            guard let self, e.window === self.view.window, self.mode != .chat, !self.manualBox.isHidden,
-                  e.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
-                  e.charactersIgnoringModifiers?.lowercased() == "f" else { return e }
-            self.focusSearch()
-            return nil
+            guard let self, e.window === self.view.window, !ShortcutField.recording,
+                  let a = Shortcuts.action(keyCode: Int(e.keyCode), mods: KeyCombo.modifiers(e.modifierFlags), in: LocalPrefs.keys)
+            else { return e }
+            return self.perform(a) ? nil : e
         }
         // ⌥ ditahan → lingkaran berubah jadi ✎ (pola tombol alternatif ⌥ di macOS)
         // ⌃ ditahan → lingkaran berubah jadi ≡ (seret untuk mengubah urutan)
@@ -1710,8 +1803,9 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         let noun = mode == .reminders ? "Pengingat" : "Todo"
         newTodoButton.isHidden = !canAdd
         newTodoButton.contentTintColor = addCardOpen ? Theme.accent : .secondaryLabelColor
+        let key = LocalPrefs.keys[.newItem].map { " (\($0.display))" } ?? ""
         newTodoButton.toolTip = addCardOpen ? "Tutup form \(noun.lowercased()) baru (Esc)"
-                                            : "\(noun) baru (⌘N) · ⌥-klik: isian lengkap"
+                                            : "\(noun) baru\(key) · ⌥-klik: isian lengkap"
         newTodoButton.setAccessibilityLabel(addCardOpen ? "Tutup form \(noun.lowercased()) baru" : "\(noun) baru")
         let card = canAdd && addCardOpen
         addHost.isHidden = !card
@@ -2991,6 +3085,28 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         didShow()
     }
 
+    /// Pintasan popover (cari & pindah tab). false = tidak berlaku di keadaan ini → event diteruskan seperti biasa.
+    /// ＋ dan ↻ lewat keyEquivalent tombolnya (`KeyBindings`).
+    private func perform(_ a: ShortcutAction) -> Bool {
+        let tabs = 3
+        let target: Mode
+        switch a {
+        case .search:
+            guard mode != .chat, !manualBox.isHidden else { return false }
+            focusSearch()
+            return true
+        case .tabChat: target = .chat
+        case .tabTodo: target = .todo
+        case .tabReminders: target = .reminders
+        case .nextTab: target = Mode(rawValue: (mode.rawValue + 1) % tabs) ?? .chat
+        case .previousTab: target = Mode(rawValue: (mode.rawValue + tabs - 1) % tabs) ?? .chat
+        default: return false
+        }
+        segment.selectedSegment = target.rawValue
+        segmentChanged()
+        return true
+    }
+
     /// Konfirmasi lalu hapus seluruh riwayat chat (DELETE /api/chat, sama dengan web → Hapus riwayat).
     /// Server ikut menghapus semua kartu aksi: yang menunggu konfirmasi batal tanpa dijalankan,
     /// dan aksi yang sudah dijalankan tidak bisa di-undo lagi (todo/pengingatnya tetap ada).
@@ -3382,6 +3498,95 @@ final class CardView: NSView {
     }
 }
 
+/// Perekam pintasan (Pengaturan → Pintasan), pola System Settings → Papan Ketik: klik → "Ketik pintasan…" →
+/// tekan kombinasi baru. ⌫ = kosongkan (pintasan nonaktif), Esc / klik lagi / klik di tempat lain = batal.
+final class ShortcutField: NSButton {
+    /// Ada perekam yang aktif: monitor pintasan lain (popover, menu Edit) melewatkan event.
+    static var recording: Bool { current != nil }
+    private static weak var current: ShortcutField?
+
+    let shortcut: ShortcutAction
+    /// Mulai / selesai merekam (hotkey global dilepas selama merekam).
+    var onRecording: ((Bool) -> Void)?
+    /// Kombinasi baru; nil = dikosongkan.
+    var onPick: ((ShortcutAction, KeyCombo?) -> Void)?
+    private var isRecording = false
+    private var monitor: Any?
+    private var resignObserver: Any?
+
+    init(_ shortcut: ShortcutAction) {
+        self.shortcut = shortcut
+        super.init(frame: .zero)
+        bezelStyle = .rounded
+        setButtonType(.momentaryPushIn)
+        target = self
+        action = #selector(clicked)
+        translatesAutoresizingMaskIntoConstraints = false
+        widthAnchor.constraint(equalToConstant: 128).isActive = true
+        setAccessibilityLabel("Pintasan \(shortcut.title)")
+        refresh()
+    }
+
+    required init?(coder: NSCoder) { fatalError("tidak dipakai") }
+
+    func refresh() {
+        title = isRecording ? "Ketik pintasan…" : (LocalPrefs.keys[shortcut]?.display ?? "Tidak ada")
+        bezelColor = isRecording ? Theme.accent : nil
+        toolTip = isRecording ? "⌫ = kosongkan, Esc = batal" : "Klik untuk mengubah"
+    }
+
+    @objc private func clicked() { isRecording ? stop() : start() }
+
+    private func start() {
+        ShortcutField.current?.stop()
+        ShortcutField.current = self
+        isRecording = true
+        onRecording?(true)
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown]) { [weak self] e in
+            guard let self, self.isRecording else { return e }
+            if e.type != .keyDown {
+                // klik di luar perekam = batal (klik di perekam sendiri ditangani `clicked`)
+                if e.window !== self.window || !self.bounds.contains(self.convert(e.locationInWindow, from: nil)) { self.stop() }
+                return e
+            }
+            self.record(e)
+            return nil
+        }
+        if let w = window {
+            resignObserver = NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: w,
+                                                                    queue: .main) { [weak self] _ in self?.stop() }
+        }
+        refresh()
+    }
+
+    func stop() {
+        guard isRecording else { return }
+        isRecording = false
+        if ShortcutField.current === self { ShortcutField.current = nil }
+        if let m = monitor { NSEvent.removeMonitor(m) }
+        monitor = nil
+        if let o = resignObserver { NotificationCenter.default.removeObserver(o) }
+        resignObserver = nil
+        onRecording?(false)
+        refresh()
+    }
+
+    private func record(_ e: NSEvent) {
+        let mods = KeyCombo.modifiers(e.modifierFlags)
+        let code = Int(e.keyCode)
+        if mods == 0 && code == KeyCombo.escapeKey { return stop() }
+        if mods == 0 && (code == KeyCombo.deleteKey || code == KeyCombo.forwardDeleteKey) {
+            stop()
+            onPick?(shortcut, nil)
+            return
+        }
+        let chars = e.characters(byApplyingModifiers: []) ?? e.charactersIgnoringModifiers ?? ""
+        guard !chars.isEmpty else { return NSSound.beep() }
+        stop()
+        onPick?(shortcut, KeyCombo(keyCode: code, chars: chars, mods: mods))
+    }
+}
+
 /// Potongan tata letak formulir: setiap baris = judul + keterangan di kiri, satu kontrol di kanan.
 /// Pilihan nyala / mati selalu NSSwitch, aksi selalu tombol berlabel kata kerja → mudah dibedakan.
 enum Form {
@@ -3550,8 +3755,7 @@ final class TodoPage: NSViewController, NSTableViewDataSource, NSTableViewDelega
         let add = NSButton(image: UI.symbol("plus", 13, weight: .semibold) ?? NSImage(), target: self, action: #selector(addTapped))
         add.bezelStyle = .rounded
         add.toolTip = "Todo baru (⌘N)"
-        add.keyEquivalent = "n"
-        add.keyEquivalentModifierMask = .command
+        KeyBindings.bind(add, .newItem, tip: "Todo baru") // bawaan ⌘N (Pengaturan → Pintasan)
         add.setAccessibilityLabel("Todo baru")
         let tools = UI.stack([search, listPopup, add], vertical: false, spacing: 8)
         search.setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -4031,8 +4235,7 @@ final class ReminderPage: NSViewController, NSTableViewDataSource, NSTableViewDe
         let add = NSButton(image: UI.symbol("plus", 13, weight: .semibold) ?? NSImage(), target: self, action: #selector(addTapped))
         add.bezelStyle = .rounded
         add.toolTip = "Pengingat baru (⌘N)"
-        add.keyEquivalent = "n"
-        add.keyEquivalentModifierMask = .command
+        KeyBindings.bind(add, .newItem, tip: "Pengingat baru") // bawaan ⌘N (Pengaturan → Pintasan)
         add.setAccessibilityLabel("Pengingat baru")
         let tools = UI.stack([search, add], vertical: false, spacing: 8)
         search.setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -4892,13 +5095,14 @@ final class MemoryPage: NSViewController {
 }
 
 final class SettingsWindow: NSObject {
-    enum Tab: Int { case general, todos, reminders, account, memory, about }
+    enum Tab: Int { case general, shortcuts, todos, reminders, account, memory, about }
     static let size = NSSize(width: 600, height: 470)
 
     unowned let app: AppDelegate
     private var window: NSWindow?
     private let tabs = NSTabViewController()
     private let general = FormPage()
+    private let keysPage = FormPage()
     private let account = FormPage()
     private lazy var todos = TodoPage(app: app)
     private lazy var reminders = ReminderPage(app: app)
@@ -4909,7 +5113,15 @@ final class SettingsWindow: NSObject {
 
     // kontrol tab Umum (dibuat sekali, statusnya diperbarui di tempat supaya animasi NSSwitch tidak terputus)
     private lazy var badgeSwitch = Form.toggle(self, #selector(badgeChanged(_:)))
-    private lazy var hotkeySwitch = Form.toggle(self, #selector(hotkeyChanged(_:)))
+    /// Tab Pintasan: satu perekam per aksi + baris keterangan / galat di bawahnya.
+    private lazy var shortcutFields: [ShortcutField] = ShortcutAction.allCases.map { a in
+        let f = ShortcutField(a)
+        f.onRecording = { [weak self] on in self?.app.shortcutsPaused = on }
+        f.onPick = { [weak self] action, combo in self?.pickShortcut(action, combo) }
+        return f
+    }
+    private static let shortcutHint = "Klik pintasan lalu tekan kombinasi baru. ⌫ = kosongkan (nonaktif), Esc = batal."
+    private lazy var shortcutNote = Form.note(SettingsWindow.shortcutHint, width: 380)
     private lazy var notifySwitch = Form.toggle(self, #selector(notifyChanged(_:)))
     private lazy var loginSwitch = Form.toggle(self, #selector(loginChanged(_:)))
     private lazy var suggestSwitch = Form.toggle(self, #selector(suggestChanged(_:)))
@@ -4951,7 +5163,8 @@ final class SettingsWindow: NSObject {
 
     private func build() {
         tabs.tabStyle = .toolbar
-        let pages: [(NSViewController, String, String)] = [(general, "Umum", "gearshape"), (todos, "Todo", "checklist"),
+        let pages: [(NSViewController, String, String)] = [(general, "Umum", "gearshape"), (keysPage, "Pintasan", "keyboard"),
+                                                           (todos, "Todo", "checklist"),
                                                            (reminders, "Pengingat", "bell"),
                                                            (account, "Akun", "person.crop.circle"),
                                                            (memory, "Ingatan", "brain"), (about, "Tentang", "info.circle")]
@@ -4975,7 +5188,6 @@ final class SettingsWindow: NSObject {
         general.set([
             Form.section("Menu bar", [
                 Form.row("Tampilkan jumlah todo", "Angka todo hari ini + terlambat di samping ikon ✓.", badgeSwitch),
-                Form.row("Pintasan ⌥⌘T", "Buka / tutup asisten dari aplikasi mana pun.", hotkeySwitch),
                 Form.row("Contoh pertanyaan", "Tombol cepat di atas kotak chat, mis. “Apa saja todo hari ini?”.", suggestSwitch),
                 Form.row("Kelompokkan todo", "Daftar di tab Todo: per waktu (tanggal) atau per kategori. Juga lewat klik kanan filter.", groupControl),
             ]),
@@ -4988,12 +5200,47 @@ final class SettingsWindow: NSObject {
                 Form.row("Buka saat login", "AI Todo otomatis berjalan setiap Mac dinyalakan.", loginSwitch),
             ]),
         ])
+
+        // Pintasan (dulu hanya sakelar "Pintasan ⌥⌘T" di Umum)
+        func rows(_ global: Bool) -> [NSView] {
+            shortcutFields.filter { $0.shortcut.isGlobal == global }.map { Form.row($0.shortcut.title, $0.shortcut.detail, $0) }
+        }
+        let reset = Form.button("Kembalikan bawaan", self, #selector(resetShortcuts))
+        let foot = UI.stack([shortcutNote, NSView(), reset], vertical: false, spacing: 16)
+        shortcutNote.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        keysPage.set([
+            Form.section("Dari aplikasi mana pun", rows(true)),
+            Form.section("Di popover", rows(false)),
+            foot,
+        ])
+    }
+
+    /// Pintasan baru dari perekam (nil = dikosongkan): simpan bila valid, selain itu tampilkan alasannya.
+    private func pickShortcut(_ a: ShortcutAction, _ c: KeyCombo?) { showShortcutResult(app.setShortcut(a, c)) }
+
+    /// nil = berhasil (kembali ke petunjuk biasa); selain itu galat berwarna + bunyi.
+    private func showShortcutResult(_ error: String?) {
+        if let err = error {
+            NSSound.beep()
+            shortcutNote.stringValue = err
+            shortcutNote.textColor = Theme.danger
+        } else {
+            shortcutNote.stringValue = SettingsWindow.shortcutHint
+            shortcutNote.textColor = .secondaryLabelColor
+        }
+        shortcutFields.forEach { $0.refresh() }
+    }
+
+    @objc private func resetShortcuts() {
+        shortcutFields.forEach { $0.stop() }
+        app.resetShortcuts()
+        showShortcutResult(nil)
     }
 
     private func rebuild() {
         guard window != nil else { return }
         badgeSwitch.state = LocalPrefs.showBadge ? .on : .off
-        hotkeySwitch.state = LocalPrefs.hotkey ? .on : .off
+        shortcutFields.forEach { $0.refresh() }
         notifySwitch.state = LocalPrefs.notifications ? .on : .off
         suggestSwitch.state = LocalPrefs.showSuggestions ? .on : .off
         groupControl.selectedSegment = LocalPrefs.todoGroup
@@ -5065,7 +5312,6 @@ final class SettingsWindow: NSObject {
     }
 
     @objc func badgeChanged(_ s: NSSwitch) { if (s.state == .on) != LocalPrefs.showBadge { app.toggleBadge() } }
-    @objc func hotkeyChanged(_ s: NSSwitch) { if (s.state == .on) != LocalPrefs.hotkey { app.toggleHotkey() } }
     @objc func suggestChanged(_ s: NSSwitch) { if (s.state == .on) != LocalPrefs.showSuggestions { app.toggleSuggestions() } }
     @objc func groupChanged(_ c: NSSegmentedControl) { app.setTodoGroup(c.selectedSegment) }
     @objc func notifyChanged(_ s: NSSwitch) { if (s.state == .on) != LocalPrefs.notifications { app.toggleNotifications() } }
@@ -5341,8 +5587,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         store.onChange = { [weak self] in self?.stateChanged() }
         store.configureFromKeychain()
 
-        HotKey.action = { [weak self] in self?.togglePopover(.chat) }
-        if LocalPrefs.hotkey { hotkey.register() }
+        // ⌥⌘T = asisten (tab Chat), ⇧⌥⌘T = popover di tab terakhir (sama dengan klik ikon); bisa diubah di Pengaturan → Pintasan
+        HotKey.action = { [weak self] a in self?.togglePopover(a == .toggleChat ? .chat : nil) }
+        applyShortcuts()
 
         // Bangun dari tidur / ganti hari: segarkan & jadwalkan ulang notifikasi.
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
@@ -5439,12 +5686,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let st = NSMenuItem(title: syncStatus, action: nil, keyEquivalent: "")
         st.isEnabled = false
         contextMenu.addItem(st)
-        let sync = item("Sinkronkan sekarang", #selector(resyncNow), key: "r")
+        let sync = item("Sinkronkan sekarang", #selector(resyncNow), shortcut: .resync)
         sync.isEnabled = store.connected
         contextMenu.addItem(sync)
         contextMenu.addItem(.separator())
-        let ask = item("Buka asisten", #selector(openChat), key: "t")
-        ask.keyEquivalentModifierMask = [.command, .option]
+        let ask = item("Buka asisten", #selector(openChat), shortcut: .toggleChat)
         contextMenu.addItem(ask)
         contextMenu.addItem(item("Tambah todo manual", #selector(openManual)))
         contextMenu.addItem(item("Kelola semua todo…", #selector(openTodos)))
@@ -5469,6 +5715,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func item(_ title: String, _ action: Selector, key: String = "") -> NSMenuItem {
         let i = NSMenuItem(title: title, action: action, keyEquivalent: key)
         i.target = self
+        return i
+    }
+
+    /// Item menu dengan pintasan yang sedang berlaku (Pengaturan → Pintasan); kosong bila dimatikan.
+    func item(_ title: String, _ action: Selector, shortcut: ShortcutAction) -> NSMenuItem {
+        let i = item(title, action)
+        if let c = LocalPrefs.keys[shortcut] {
+            i.keyEquivalent = c.chars
+            i.keyEquivalentModifierMask = c.modifierMask
+        }
         return i
     }
 
@@ -5786,10 +6042,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         stateChanged()
     }
 
-    @objc func toggleHotkey() {
-        LocalPrefs.hotkey.toggle()
-        if LocalPrefs.hotkey { hotkey.register() } else { hotkey.unregister() }
-        settings.reload()
+    /// Pintasan berubah (Pengaturan → Pintasan) → daftar ulang hotkey global & perbarui tombol / tooltip.
+    /// Hasil = pintasan global yang gagal didaftarkan (kombinasinya dipakai aplikasi lain).
+    @discardableResult
+    func applyShortcuts() -> [ShortcutAction] {
+        KeyBindings.refresh()
+        return shortcutsPaused ? [] : hotkey.register(LocalPrefs.keys)
+    }
+
+    /// Selama merekam pintasan baru, hotkey global dilepas supaya kombinasi yang ditekan tidak menjalankan aksinya.
+    var shortcutsPaused = false {
+        didSet {
+            guard shortcutsPaused != oldValue else { return }
+            if shortcutsPaused { hotkey.unregister() } else { applyShortcuts() }
+        }
+    }
+
+    /// Simpan pintasan baru (nil = matikan). Hasil = pesan galat bila ditolak (bentrok / dipakai macOS / aplikasi lain).
+    func setShortcut(_ a: ShortcutAction, _ c: KeyCombo?) -> String? {
+        let before = LocalPrefs.shortcuts
+        if let c, let err = Shortcuts.validate(c, for: a, in: LocalPrefs.keys) { return err }
+        var s = before
+        s[a.rawValue] = c?.stored ?? ""
+        LocalPrefs.shortcuts = s
+        if applyShortcuts().contains(a) {
+            LocalPrefs.shortcuts = before
+            applyShortcuts()
+            return "\(c?.display ?? "") sudah dipakai aplikasi lain."
+        }
+        return nil
+    }
+
+    /// Kembalikan semua pintasan ke bawaan.
+    func resetShortcuts() {
+        LocalPrefs.shortcuts = [:]
+        LocalPrefs.hotkey = true
+        applyShortcuts()
     }
 
     @objc func toggleLogin() {
@@ -5812,6 +6100,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// lewat action standar (copy:, paste:, …) — sama dengan menu Edit, hanya lebih pasti sampai.
     func installEditShortcuts() {
         editMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
+            if ShortcutField.recording { return e } // sedang merekam pintasan baru (Pengaturan → Pintasan)
             let mods = e.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.capsLock, .numericPad, .function])
             guard mods == .command || mods == [.command, .shift],
                   let key = e.charactersIgnoringModifiers?.lowercased() else { return e }

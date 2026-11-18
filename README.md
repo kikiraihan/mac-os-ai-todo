@@ -59,11 +59,11 @@ Pengaturan → Perangkat). Alternatif: **Pakai token…** dengan token dari hala
 | Di menu bar | Fungsi |
 |---|---|
 | ✓ + angka | jumlah todo hari ini + terlambat (bisa disembunyikan) |
-| klik ikon (atau ⌥⌘T dari mana saja) | popover; tombol 🌐 = buka di browser, ⚙︎ = jendela Pengaturan |
+| klik ikon (atau ⇧⌥⌘T dari mana saja; ⌥⌘T = langsung tab Chat) | popover; tombol 🌐 = buka di browser, ⚙︎ = jendela Pengaturan; ⌘1 / ⌘2 / ⌘3 atau ⌃⇥ / ⌃⇧⇥ = pindah tab |
 | tab **Chat** | gaya Claude: pesanmu di gelembung kanan, jawaban asisten penuh lebar di bawahnya; ↩ kirim, ⇧↩ baris baru; tombol **Ya, lakukan / Batal / Batalkan aksi terakhir** untuk kartu aksi |
 | tab **Manual** | tambah todo lewat tombol ＋ di header / ⌘N (judul, tenggat hari ini/besok/lusa, jam; Esc menutup); filter **Hari ini** (terlambat, hari ini, 3 pengingat berikutnya) / **Semua** (semua todo terbuka per tanggal + tanpa tenggat; klik kanan filter atau Pengaturan → Umum untuk mengelompokkan per **kategori**) — klik lingkaran = tandai selesai; **ubah todo**: tahan ⌥ lalu klik ✎, klik dua kali judul, atau klik kanan → Ubah… (judul, kategori, prioritas, tanggal & jam lewat picker) |
 | klik kanan ikon | menu singkat: buka asisten, tambah todo, kelola semua todo…, Pengaturan…, cek pembaruan, Keluar |
-| Pengaturan (⚙︎) | jendela sendiri: **Umum** (badge, hotkey, notifikasi, buka saat login), **Todo** (kelola lengkap seperti web: filter, cari, kategori, tambah, ubah, selesai/buka lagi, hapus, arsipkan), **Akun** (server, putuskan), **Ingatan**, **Tentang** (pembaruan, keluar) |
+| Pengaturan (⚙︎) | jendela sendiri: **Umum** (badge, notifikasi, buka saat login), **Pintasan** (semua pintasan papan ketik bisa diubah / dimatikan, ada Kembalikan bawaan), **Todo** (kelola lengkap seperti web: filter, cari, kategori, tambah, ubah, selesai/buka lagi, hapus, arsipkan), **Akun** (server, putuskan), **Ingatan**, **Tentang** (pembaruan, keluar) |
 | Notifikasi | pengingat & tenggat (10 menit sebelum) sebagai notifikasi Mac, tombol **Selesai** / **Tunda 10 mnt** |
 
 Build sendiri (butuh Xcode Command Line Tools): `./scripts/build.sh` → `build/AITodo.app`.

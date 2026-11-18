@@ -38,6 +38,25 @@ let placed = ManualOrder.place([3, 1], in: [9, 1, 7, 3, 8], keep: [1, 3, 7, 9])
 check(placed == [9, 7, 3, 1], "simpan urutan kelompok: kelompok lain tetap, id yang hilang dibuang (\(placed))")
 check(ManualOrder.reset([3, 1], in: [9, 3, 1]) == [9], "kembalikan kelompok ke urutan bawaan")
 
+// Pintasan papan ketik (Pengaturan → Pintasan): bawaan, simpan, validasi, pencocokan
+let defKeys = Shortcuts.resolve([:])
+check(defKeys[.toggleChat]?.display == "⌥⌘T" && defKeys[.newItem]?.display == "⌘N" && defKeys[.nextTab]?.display == "⌃⇥",
+      "pintasan bawaan sama dengan sebelumnya (⌥⌘T, ⌘N, ⌃⇥)")
+check(Shortcuts.resolve([:], chatHotkeyOff: true)[.toggleChat] == nil, "sakelar lama ⌥⌘T mati → pintasan asisten kosong")
+check(Shortcuts.resolve(["toggleChat": ""])[.toggleChat] == nil, "\"\" = pintasan dimatikan")
+let kc = KeyCombo(keyCode: 0x29, chars: ";", mods: KeyCombo.command | KeyCombo.shift)
+check(KeyCombo(stored: kc.stored) == kc && kc.display == "⇧⌘;", "simpan & baca ulang pintasan (\(kc.stored))")
+check(Shortcuts.resolve(["search": kc.stored])[.search] == kc, "pintasan tersimpan dipakai")
+check(Shortcuts.validate(KeyCombo(keyCode: 0x2D, chars: "n", mods: 0), for: .search, in: defKeys) != nil, "tanpa ⌘/⌃ ditolak")
+check(Shortcuts.validate(KeyCombo(keyCode: 0x08, chars: "c", mods: KeyCombo.command), for: .search, in: defKeys) != nil, "⌘C (Salin) ditolak")
+check(Shortcuts.validate(KeyCombo(keyCode: 0x2D, chars: "n", mods: KeyCombo.command), for: .search, in: defKeys) != nil,
+      "bentrok dengan pintasan lain ditolak")
+check(Shortcuts.validate(KeyCombo(keyCode: 0x2D, chars: "n", mods: KeyCombo.command), for: .newItem, in: defKeys) == nil,
+      "pintasan yang sama untuk aksinya sendiri boleh")
+check(Shortcuts.validate(KeyCombo(keyCode: 0x60, chars: "x", mods: 0), for: .search, in: defKeys) == nil, "F5 tanpa modifier boleh")
+check(Shortcuts.action(keyCode: 0x13, mods: KeyCombo.command, in: defKeys) == .tabTodo, "⌘2 → tab Todo")
+check(Shortcuts.action(keyCode: 0x11, mods: KeyCombo.command | KeyCombo.option, in: defKeys) == nil, "pintasan global tidak dicocokkan lokal")
+
 // Cari di popover: semua kata harus ada (urutan bebas), abaikan huruf besar/kecil & aksen
 let sTodo = Todo(id: 1, title: "Meeting Singapay dengan Irish", notes: "bahas split payment", status: "open",
                  priority: "", list: "Kerja", dueDate: "", dueTime: "")

@@ -260,6 +260,16 @@ Rancangan: [`../docs/PRD.md`](../docs/PRD.md). Perbarui setiap tugas selesai.
       pertama judul: kotak ikon tetap 18 × tinggi baris (`ListRow.lineHeight`), ikon di tengahnya — tidak bergeser lagi
       saat ikon berganti ukuran atau judul berlipat
 - [ ] Uji manual di Mac sungguhan: tab Todo & Pengingat, tahan ⌃ / ⌥ → ikon tetap sejajar dengan baris pertama judul
+- [x] 0.19.0: aplikasi Mac — **pintasan bisa diatur** di tab baru Pengaturan → **Pintasan** (perekam gaya System
+      Settings: klik → tekan kombinasi; ⌫ = matikan, Esc = batal; Kembalikan bawaan). Bawaan tetap: ⌥⌘T asisten,
+      ⌘N baru, ⌘F cari, ⌘R sinkron. Baru: **⇧⌥⌘T buka / tutup popover** (sama dengan klik ikon menu bar, tab terakhir)
+      dari aplikasi mana pun, **⌘1 / ⌘2 / ⌘3** = tab Chat / Todo / Pengingat, **⌃⇥ / ⌃⇧⇥** = tab berikutnya /
+      sebelumnya. Ditolak: tanpa ⌘/⌃ (kecuali F1–F15), pintasan standar macOS (⌘C, ⌘W, ⌘Q, …), bentrok dengan aksi
+      lain, atau hotkey global yang sudah dipakai aplikasi lain. Sakelar lama "Pintasan ⌥⌘T" (Umum) diganti tab ini
+      (posisi mati dibawa sebagai pintasan asisten kosong). Model & validasi `KeyCombo` / `Shortcuts` di Client.swift,
+      diuji di `Tests/ClientCheck`
+- [ ] Uji manual di Mac sungguhan: ⇧⌥⌘T dari app lain, ⌘1–3 & ⌃⇥ di popover (juga saat mengetik di chat), ubah ⌘N
+      jadi ⇧⌘N → tooltip & menu klik kanan ikut berubah, rekam ⌘C → ditolak, matikan ⌥⌘T → tidak membuka popover
 
 ## Berikutnya
 

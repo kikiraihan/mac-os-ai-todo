@@ -591,6 +591,167 @@ enum TextSearch {
     }
 }
 
+// MARK: - Pintasan papan ketik (Pengaturan → Pintasan)
+
+/// Satu kombinasi tombol. `keyCode` = kode tombol fisik (kVK_* di Carbon; dipakai hotkey global & pencocokan
+/// event), `chars` = karakter tombol tanpa modifier (keyEquivalent tombol & label), `mods` = gabungan
+/// `KeyCombo.command/option/control/shift`.
+struct KeyCombo: Equatable {
+    var keyCode: Int
+    var chars: String
+    var mods: Int
+
+    static let command = 1, option = 2, control = 4, shift = 8
+
+    // Kode tombol fisik yang dipakai di sini (sama dengan kVK_* di Carbon.HIToolbox).
+    static let tabKey = 0x30, spaceKey = 0x31, returnKey = 0x24, deleteKey = 0x33, forwardDeleteKey = 0x75, escapeKey = 0x35
+
+    /// Label tombol khusus (yang karakternya tidak bisa ditampilkan).
+    private static let specialLabels: [Int: String] = [
+        tabKey: "⇥", spaceKey: "Spasi", returnKey: "↩", 0x4C: "⌤", deleteKey: "⌫", forwardDeleteKey: "⌦", escapeKey: "⎋",
+        0x7B: "←", 0x7C: "→", 0x7D: "↓", 0x7E: "↑", 0x73: "↖", 0x77: "↘", 0x74: "⇞", 0x79: "⇟",
+        0x7A: "F1", 0x78: "F2", 0x63: "F3", 0x76: "F4", 0x60: "F5", 0x61: "F6", 0x62: "F7", 0x64: "F8",
+        0x65: "F9", 0x6D: "F10", 0x67: "F11", 0x6F: "F12", 0x69: "F13", 0x6B: "F14", 0x71: "F15",
+    ]
+
+    /// Tombol F1–F15: boleh tanpa ⌘ / ⌃ (tidak mengetik huruf).
+    var isFunctionKey: Bool { KeyCombo.specialLabels[keyCode]?.hasPrefix("F") == true }
+
+    var keyLabel: String { KeyCombo.specialLabels[keyCode] ?? chars.uppercased() }
+
+    /// Urutan simbol modifier mengikuti macOS: ⌃ ⌥ ⇧ ⌘.
+    var display: String {
+        var s = ""
+        if mods & KeyCombo.control != 0 { s += "⌃" }
+        if mods & KeyCombo.option != 0 { s += "⌥" }
+        if mods & KeyCombo.shift != 0 { s += "⇧" }
+        if mods & KeyCombo.command != 0 { s += "⌘" }
+        return s + keyLabel
+    }
+
+    /// Disimpan di UserDefaults sebagai "keyCode:mods:chars" (chars boleh berisi ':').
+    var stored: String { "\(keyCode):\(mods):\(chars)" }
+
+    init(keyCode: Int, chars: String, mods: Int) {
+        self.keyCode = keyCode
+        self.chars = chars.lowercased()
+        self.mods = mods & (KeyCombo.command | KeyCombo.option | KeyCombo.control | KeyCombo.shift)
+    }
+
+    init?(stored: String) {
+        let p = stored.split(separator: ":", maxSplits: 2, omittingEmptySubsequences: false)
+        guard p.count == 3, let k = Int(p[0]), let m = Int(p[1]), k >= 0, !p[2].isEmpty else { return nil }
+        self.init(keyCode: k, chars: String(p[2]), mods: m)
+    }
+
+    /// Sama tombol & modifier (karakter tidak dibandingkan: bisa beda menurut tata letak papan ketik).
+    func same(_ o: KeyCombo) -> Bool { keyCode == o.keyCode && mods == o.mods }
+}
+
+/// Semua pintasan aplikasi Mac yang bisa diatur. Bawaan = pintasan yang sudah ada sebelumnya
+/// (⌥⌘T, ⌘N, ⌘F, ⌘R) + pintasan baru (buka popover di tab terakhir, pindah tab).
+enum ShortcutAction: String, CaseIterable {
+    case toggleChat, togglePopover, tabChat, tabTodo, tabReminders, nextTab, previousTab, newItem, search, resync
+
+    var title: String {
+        switch self {
+        case .toggleChat: return "Buka / tutup asisten"
+        case .togglePopover: return "Buka / tutup AI Todo"
+        case .tabChat: return "Tab Chat"
+        case .tabTodo: return "Tab Todo"
+        case .tabReminders: return "Tab Pengingat"
+        case .nextTab: return "Tab berikutnya"
+        case .previousTab: return "Tab sebelumnya"
+        case .newItem: return "Todo / pengingat baru"
+        case .search: return "Cari"
+        case .resync: return "Sinkronkan ulang"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .toggleChat: return "Popover langsung di tab Chat, dari aplikasi mana pun."
+        case .togglePopover: return "Sama dengan klik ikon di menu bar: popover di tab terakhir, dari aplikasi mana pun."
+        case .tabChat, .tabTodo, .tabReminders: return "Pindah tab di popover."
+        case .nextTab, .previousTab: return "Pindah tab di popover secara berurutan (berputar)."
+        case .newItem: return "Kartu tambah di popover, juga tombol ＋ di Pengaturan → Todo / Pengingat."
+        case .search: return "Fokus ke kolom cari di tab Todo & Pengingat."
+        case .resync: return "Ambil ulang data dari server (tombol ↻)."
+        }
+    }
+
+    /// Berlaku dari aplikasi mana pun (hotkey global), bukan hanya saat popover aktif.
+    var isGlobal: Bool { self == .toggleChat || self == .togglePopover }
+
+    var defaultCombo: KeyCombo {
+        let cmd = KeyCombo.command, opt = KeyCombo.option, ctrl = KeyCombo.control, shift = KeyCombo.shift
+        switch self {
+        case .toggleChat: return KeyCombo(keyCode: 0x11, chars: "t", mods: cmd | opt)
+        case .togglePopover: return KeyCombo(keyCode: 0x11, chars: "t", mods: cmd | opt | shift)
+        case .tabChat: return KeyCombo(keyCode: 0x12, chars: "1", mods: cmd)
+        case .tabTodo: return KeyCombo(keyCode: 0x13, chars: "2", mods: cmd)
+        case .tabReminders: return KeyCombo(keyCode: 0x14, chars: "3", mods: cmd)
+        case .nextTab: return KeyCombo(keyCode: KeyCombo.tabKey, chars: "\t", mods: ctrl)
+        case .previousTab: return KeyCombo(keyCode: KeyCombo.tabKey, chars: "\t", mods: ctrl | shift)
+        case .newItem: return KeyCombo(keyCode: 0x2D, chars: "n", mods: cmd)
+        case .search: return KeyCombo(keyCode: 0x03, chars: "f", mods: cmd)
+        case .resync: return KeyCombo(keyCode: 0x0F, chars: "r", mods: cmd)
+        }
+    }
+}
+
+enum Shortcuts {
+    /// Pintasan standar macOS yang tetap dipegang aplikasi (menu Edit, tutup, keluar, dsb.).
+    static let reserved: [(KeyCombo, String)] = [
+        (KeyCombo(keyCode: 0x08, chars: "c", mods: KeyCombo.command), "Salin"),
+        (KeyCombo(keyCode: 0x09, chars: "v", mods: KeyCombo.command), "Tempel"),
+        (KeyCombo(keyCode: 0x07, chars: "x", mods: KeyCombo.command), "Potong"),
+        (KeyCombo(keyCode: 0x00, chars: "a", mods: KeyCombo.command), "Pilih semua"),
+        (KeyCombo(keyCode: 0x06, chars: "z", mods: KeyCombo.command), "Urungkan"),
+        (KeyCombo(keyCode: 0x06, chars: "z", mods: KeyCombo.command | KeyCombo.shift), "Ulangi"),
+        (KeyCombo(keyCode: 0x0D, chars: "w", mods: KeyCombo.command), "Tutup"),
+        (KeyCombo(keyCode: 0x0C, chars: "q", mods: KeyCombo.command), "Keluar"),
+        (KeyCombo(keyCode: 0x2B, chars: ",", mods: KeyCombo.command), "Pengaturan"),
+        (KeyCombo(keyCode: 0x04, chars: "h", mods: KeyCombo.command), "Sembunyikan"),
+        (KeyCombo(keyCode: KeyCombo.tabKey, chars: "\t", mods: KeyCombo.command), "Ganti aplikasi"),
+        (KeyCombo(keyCode: KeyCombo.spaceKey, chars: " ", mods: KeyCombo.command), "Spotlight"),
+    ]
+
+    /// Pintasan yang berlaku dari isi UserDefaults: kunci = `ShortcutAction.rawValue`, nilai = `KeyCombo.stored`,
+    /// "" = dimatikan, tidak ada = bawaan. `chatHotkeyOff` = sakelar lama "Pintasan ⌥⌘T" (≤0.18) dimatikan.
+    static func resolve(_ stored: [String: String], chatHotkeyOff: Bool = false) -> [ShortcutAction: KeyCombo] {
+        var out: [ShortcutAction: KeyCombo] = [:]
+        for a in ShortcutAction.allCases {
+            if let s = stored[a.rawValue] {
+                if let c = KeyCombo(stored: s) { out[a] = c }
+            } else if !(a == .toggleChat && chatHotkeyOff) {
+                out[a] = a.defaultCombo
+            }
+        }
+        return out
+    }
+
+    /// nil = boleh dipakai untuk `action`; selain itu alasan penolakan (ditampilkan di Pengaturan).
+    static func validate(_ c: KeyCombo, for action: ShortcutAction, in current: [ShortcutAction: KeyCombo]) -> String? {
+        if c.mods & (KeyCombo.command | KeyCombo.control) == 0 && !c.isFunctionKey {
+            return "Pakai ⌘ atau ⌃ (mis. ⌘\(c.keyLabel)) supaya tidak bentrok dengan mengetik."
+        }
+        if let r = reserved.first(where: { $0.0.same(c) }) {
+            return "\(c.display) sudah dipakai macOS (\(r.1))."
+        }
+        if let other = current.first(where: { $0.key != action && $0.value.same(c) }) {
+            return "\(c.display) sudah dipakai untuk “\(other.key.title)”."
+        }
+        return nil
+    }
+
+    /// Aksi (bukan global) yang cocok dengan tombol yang ditekan.
+    static func action(keyCode: Int, mods: Int, in current: [ShortcutAction: KeyCombo]) -> ShortcutAction? {
+        let pressed = KeyCombo(keyCode: keyCode, chars: "?", mods: mods)
+        return ShortcutAction.allCases.first { !$0.isGlobal && current[$0]?.same(pressed) == true }
+    }
+}
+
 // MARK: - Notifikasi lokal yang perlu dijadwalkan
 
 struct PlannedNotification: Equatable {

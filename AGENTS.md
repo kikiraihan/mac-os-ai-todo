@@ -59,6 +59,9 @@ Semua tampilan (aplikasi Mac & web) mengikuti gaya desain Apple (Human Interface
   pencocokan `TextSearch` di Client.swift. Keputusan pemilik: jangan kembali ke tombol 🔍 di header.
 - **Sinkron ulang** (popover Mac): tombol ↻ di samping ⚙ / ⌘R / klik kanan ikon menu bar → "Sinkronkan sekarang"
   (`Store.resync`). Header popover maks. 5 ikon; ikon baru = ganti/sembunyikan yang lain.
+- **Pintasan papan ketik** (Mac) selalu bisa diatur di Pengaturan → Pintasan: pintasan baru = tambah ke
+  `ShortcutAction` (Client.swift, dengan bawaan) lalu tangani di `PopoverController.perform` / `KeyBindings.bind`
+  (tombol) / `HotKey` (global) — jangan menulis `keyEquivalent` atau mencocokkan tombol secara langsung.
 - Salin todo = teks polos "Judul" + baris kosong + detail (`TodoCopy` di Mac, `web/src/copy.js`), selalu dengan
   umpan balik singkat ("Judul & detail disalin"). Di popover Mac: klik teks = salin, ikon ○ = selesai, klik dua kali = ubah.
 - Popover Mac: tab **Chat | Todo | Pengingat**; filter "Selesai" selalu paling ujung (✓ di sana = batalkan selesai).
