@@ -65,10 +65,10 @@ func setup(t *testing.T, f *fakeAI) (*Assistant, db.User) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := d.InsertModel(db.AIModel{Provider: ai.ProviderKenari, ModelID: "a:free"}); err != nil {
+	if _, err := d.InsertModel(db.AIModel{Provider: ai.ProviderKenari, ModelID: "a:free", Label: "Model A", Visible: true}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := d.InsertModel(db.AIModel{Provider: ai.ProviderAgnes, ModelID: "b"}); err != nil {
+	if _, err := d.InsertModel(db.AIModel{Provider: ai.ProviderAgnes, ModelID: "b", Label: "Model B", Visible: true}); err != nil {
 		t.Fatal(err)
 	}
 	return &Assistant{DB: d, AI: ai.NewRegistryForTest(srv.URL)}, u
@@ -283,5 +283,55 @@ func TestTodoDetailAppend(t *testing.T) {
 	got, _ = db.GetTodo(a.DB, u.ID, id)
 	if got.Notes != "- https://contoh.id/a" {
 		t.Fatalf("undo notes %q", got.Notes)
+	}
+}
+
+func TestModelSelectionAndUserDefault(t *testing.T) {
+	f := &fakeAI{replies: []string{`{"reply":"Oke","actions":[]}`}}
+	a, u := setup(t, f)
+	hidden, err := a.DB.InsertModel(db.AIModel{Provider: ai.ProviderOpenRouter, ModelID: "c:free", Label: "Model C", Visible: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	models, _ := a.DB.ListModels()
+	mA, mB := models[0], models[1]
+
+	// Info: default = Model A (paling atas), hanya model visible yang muncul di daftar pilihan.
+	info := a.Info()
+	if !info.Enabled || info.DefaultModelID != mA.ID || info.DefaultModelLabel != "Model A" {
+		t.Fatalf("info default salah: %+v", info)
+	}
+	if len(info.Models) != 2 || info.Models[0].ID != mA.ID || info.Models[1].ID != mB.ID {
+		t.Fatalf("daftar model tampil salah: %+v", info.Models)
+	}
+	if a.CanSelectModel(hidden.ID) || !a.CanSelectModel(mB.ID) {
+		t.Fatalf("CanSelectModel salah")
+	}
+
+	// 1. Pilih eksplisit Model B per pesan → Model B yang dipakai.
+	rep, err := a.HandleWithModel(context.Background(), u, jkt, "halo", mB.ID)
+	if err != nil || rep.Assistant.Model != "b" {
+		t.Fatalf("pilih model B gagal: err=%v model=%q", err, rep.Assistant.Model)
+	}
+
+	// 2. Pilih model tersembunyi → ditolak diam-diam, tetap pakai bawaan admin (Model A).
+	rep, err = a.HandleWithModel(context.Background(), u, jkt, "halo", hidden.ID)
+	if err != nil || rep.Assistant.Model != "a:free" {
+		t.Fatalf("model tersembunyi tidak boleh dipakai eksplisit: err=%v model=%q", err, rep.Assistant.Model)
+	}
+
+	// 3. Override default milik pengguna (ai_default_model_id = mB.ID) → tanpa modelId, otomatis pakai Model B.
+	if err := a.DB.SetUserSetting(u.ID, "ai_default_model_id", strconv.FormatInt(mB.ID, 10)); err != nil {
+		t.Fatal(err)
+	}
+	rep, err = a.Handle(context.Background(), u, jkt, "halo lagi")
+	if err != nil || rep.Assistant.Model != "b" {
+		t.Fatalf("override default pengguna tidak dipakai: err=%v model=%q", err, rep.Assistant.Model)
+	}
+
+	// 4. Pilihan eksplisit Model A tetap mengalahkan override default pengguna (Model B).
+	rep, err = a.HandleWithModel(context.Background(), u, jkt, "pakai A", mA.ID)
+	if err != nil || rep.Assistant.Model != "a:free" {
+		t.Fatalf("pilihan eksplisit tidak mengalahkan default pengguna: err=%v model=%q", err, rep.Assistant.Model)
 	}
 }

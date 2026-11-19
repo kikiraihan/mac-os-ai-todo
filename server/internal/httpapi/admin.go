@@ -207,6 +207,7 @@ func (s *Server) adminAISettings(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
+	s.Hub.BumpAll()
 	writeJSON(w, http.StatusOK, map[string]any{"settings": s.assistantSettings()})
 }
 
@@ -241,6 +242,7 @@ type modelInput struct {
 	Status    *string `json:"status"`
 	ExtraBody *string `json:"extraBody"`
 	Free      *bool   `json:"free"`
+	Visible   *bool   `json:"visible"`
 }
 
 func (s *Server) adminCreateModel(w http.ResponseWriter, r *http.Request) {
@@ -257,7 +259,7 @@ func (s *Server) adminCreateModel(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "id model tidak valid (salin persis dari daftar provider)")
 		return
 	}
-	m := db.AIModel{Provider: in.Provider, ModelID: in.ModelID, Label: in.ModelID, Free: strings.HasSuffix(in.ModelID, ":free")}
+	m := db.AIModel{Provider: in.Provider, ModelID: in.ModelID, Label: in.ModelID, Free: strings.HasSuffix(in.ModelID, ":free"), Visible: true}
 	if in.Label != nil && strings.TrimSpace(*in.Label) != "" {
 		m.Label = truncateRunes(strings.TrimSpace(*in.Label), 100)
 	}
@@ -272,6 +274,9 @@ func (s *Server) adminCreateModel(w http.ResponseWriter, r *http.Request) {
 	if in.Free != nil {
 		m.Free = *in.Free
 	}
+	if in.Visible != nil {
+		m.Visible = *in.Visible
+	}
 	if exists, err := s.DB.ModelExists(m.Provider, m.ModelID); err != nil || exists {
 		if err != nil {
 			fail(w, err)
@@ -285,6 +290,7 @@ func (s *Server) adminCreateModel(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
+	s.Hub.BumpAll()
 	writeJSON(w, http.StatusCreated, map[string]any{"model": m})
 }
 
@@ -331,10 +337,14 @@ func (s *Server) adminUpdateModel(w http.ResponseWriter, r *http.Request) {
 	if in.Free != nil {
 		m.Free = *in.Free
 	}
+	if in.Visible != nil {
+		m.Visible = *in.Visible
+	}
 	if err := s.DB.UpdateModel(m); err != nil {
 		fail(w, err)
 		return
 	}
+	s.Hub.BumpAll()
 	m, _ = s.DB.GetModel(id)
 	writeJSON(w, http.StatusOK, map[string]any{"model": m})
 }
@@ -349,6 +359,7 @@ func (s *Server) adminDeleteModel(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
+	s.Hub.BumpAll()
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
@@ -367,6 +378,7 @@ func (s *Server) adminReorderModels(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
+	s.Hub.BumpAll()
 	models, _ := s.DB.ListModels()
 	writeJSON(w, http.StatusOK, map[string]any{"models": models})
 }
@@ -418,6 +430,7 @@ func (s *Server) adminTestModel(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
+	s.Hub.BumpAll()
 	m, _ = s.DB.GetModel(id)
 	out["model"] = m
 	writeJSON(w, http.StatusOK, out)
@@ -485,12 +498,15 @@ func (s *Server) adminImportModels(w http.ResponseWriter, r *http.Request) {
 		if label == "" {
 			label = id
 		}
-		m, err := s.DB.InsertModel(db.AIModel{Provider: in.Provider, ModelID: id, Label: label, Free: rm.Free})
+		m, err := s.DB.InsertModel(db.AIModel{Provider: in.Provider, ModelID: id, Label: label, Free: rm.Free, Visible: true})
 		if err != nil {
 			fail(w, err)
 			return
 		}
 		added = append(added, m)
+	}
+	if len(added) > 0 {
+		s.Hub.BumpAll()
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"added": added})
 }

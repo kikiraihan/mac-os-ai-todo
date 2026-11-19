@@ -175,6 +175,45 @@ final class Store {
     var buckets: TodoBuckets { TodoBuckets(todos, now: Date(), tz: tz) }
     var connected: Bool { api.isConfigured && !needsLogin }
 
+    // Model AI yang tersedia untuk pengguna (dari GET /api/me)
+    var aiEnabled: Bool { me?.ai?.enabled ?? true }
+    var aiModels: [AIModelOption] { me?.ai?.models ?? [] }
+    var serverDefaultModelID: Int64 { me?.ai?.defaultModelId ?? 0 }
+    var serverDefaultModelLabel: String { me?.ai?.defaultModelLabel ?? "" }
+    /// Override model bawaan pilihan pengguna (0 = ikuti bawaan server).
+    var userDefaultModelID: Int64 {
+        guard let id = me?.prefs.defaultModelId, id > 0, aiModels.contains(where: { $0.id == id }) else { return 0 }
+        return id
+    }
+    /// Model bawaan yang berlaku saat ini: pilihan pengguna bila ada, selain itu bawaan server.
+    var effectiveDefaultModel: AIModelOption? {
+        if userDefaultModelID > 0, let m = aiModels.first(where: { $0.id == userDefaultModelID }) { return m }
+        if serverDefaultModelID > 0, let m = aiModels.first(where: { $0.id == serverDefaultModelID }) { return m }
+        return aiModels.first
+    }
+    var effectiveDefaultLabel: String {
+        effectiveDefaultModel?.label ?? (serverDefaultModelLabel.isEmpty ? "Bawaan" : serverDefaultModelLabel)
+    }
+
+    /// Simpan pilihan model bawaan pengguna ke server (0 = ikuti bawaan server).
+    func setDefaultModel(_ modelId: Int64, _ done: ((APIError?) -> Void)? = nil) {
+        api.setDefaultModel(modelId) { [weak self] r in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                switch r {
+                case .success(let res):
+                    if let cur = self.me {
+                        self.me = Me(user: cur.user, timezone: cur.timezone, prefs: res.prefs, ai: cur.ai, version: cur.version)
+                    }
+                    self.onChange?()
+                    done?(nil)
+                case .failure(let e):
+                    done?(e)
+                }
+            }
+        }
+    }
+
     /// Pengingat aktif terdekat milik sebuah todo (untuk ikon 🔔 di barisnya).
     func reminder(forTodo id: Int64) -> Reminder? {
         reminders.filter { $0.todoId == id && $0.active && !$0.nextFireAt.isEmpty }.min { $0.nextFireAt < $1.nextFireAt }
@@ -662,6 +701,78 @@ final class GlassBox: NSView {
         img.capInsets = NSEdgeInsets(top: r, left: r, bottom: r, right: r)
         img.resizingMode = .stretch
         return img
+    }
+}
+
+// MARK: Pemilih model AI (tombol compact gaya Claude/Gemini di dalam kotak input chat)
+
+/// Tombol kecil tanpa bingkai di pojok kiri bawah kotak input chat:
+/// `[✨ Nama model ▾]` dengan latar sorotan tipis saat kursor diarahkan.
+final class ModelPickerButton: NSView {
+    var isEnabled = true { didSet { alphaValue = isEnabled ? 1 : 0.45 } }
+    var onOpenMenu: ((NSView) -> Void)?
+
+    private let spark = NSImageView(image: UI.symbol("sparkles", 11) ?? NSImage())
+    private let titleLabel: NSTextField = {
+        let l = NSTextField(labelWithString: "")
+        l.font = .systemFont(ofSize: 11.5, weight: .medium)
+        l.textColor = .secondaryLabelColor
+        l.lineBreakMode = .byTruncatingTail
+        l.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        return l
+    }()
+    private let chevron = NSImageView(image: UI.symbol("chevron.down", 9, weight: .semibold) ?? NSImage())
+    private var hovering = false
+    private var selectable = true
+    private var area: NSTrackingArea?
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.cornerRadius = 7
+        spark.contentTintColor = .secondaryLabelColor
+        chevron.contentTintColor = .tertiaryLabelColor
+        spark.setContentHuggingPriority(.required, for: .horizontal)
+        chevron.setContentHuggingPriority(.required, for: .horizontal)
+        let row = UI.stack([spark, titleLabel, chevron], vertical: false, spacing: 4)
+        UI.pin(row, to: self, top: 4, left: 6, bottom: 4, right: 6)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.popUpButton)
+        setAccessibilityLabel("Pilih model AI")
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    func configure(title: String, tip: String, selectable: Bool) {
+        titleLabel.stringValue = title
+        toolTip = tip
+        self.selectable = selectable
+        chevron.isHidden = !selectable
+        setAccessibilityValue(title)
+        needsDisplay = true
+    }
+
+    override var wantsUpdateLayer: Bool { true }
+    override func updateLayer() {
+        let showHover = hovering && isEnabled && selectable
+        layer?.backgroundColor = showHover ? NSColor.labelColor.withAlphaComponent(0.07).cgColor : NSColor.clear.cgColor
+        titleLabel.textColor = showHover ? .labelColor : .secondaryLabelColor
+        spark.contentTintColor = showHover ? Theme.accent : .secondaryLabelColor
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let area { removeTrackingArea(area) }
+        let a = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
+        addTrackingArea(a)
+        area = a
+    }
+
+    override func mouseEntered(with event: NSEvent) { hovering = true; needsDisplay = true }
+    override func mouseExited(with event: NSEvent) { hovering = false; needsDisplay = true }
+    override func mouseDown(with event: NSEvent) {
+        guard isEnabled, selectable else { return }
+        onOpenMenu?(self)
     }
 }
 
@@ -1167,10 +1278,14 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
     private let input = NSTextField()
     /// Tinggi kolom input & kapsulnya; tumbuh mengikuti isi (⇧↩ = baris baru) sampai `inputMaxLines`.
     private lazy var inputHeight = input.heightAnchor.constraint(equalToConstant: 18)
-    private lazy var inputGlassHeight = inputGlass.heightAnchor.constraint(equalToConstant: 44)
+    private lazy var inputGlassHeight = inputGlass.heightAnchor.constraint(equalToConstant: 66)
     private static let inputMaxLines: CGFloat = 6
-    private let sendBox = RoundedBox(fill: Theme.accent, radius: 15)
-    private let inputGlass = GlassBox(radius: 22)
+    private let sendBox = RoundedBox(fill: Theme.accent, radius: 14)
+    private let inputGlass = GlassBox(radius: 18)
+    /// Pemilih model AI compact di baris bawah kotak input chat (gaya Claude/Gemini).
+    private let modelPicker = ModelPickerButton()
+    /// Model sementara yang dipilih di chat ini; nil = ikuti bawaan (pilihan pengguna / bawaan server).
+    private var selectedModelId: Int64? = nil
     private let actionBar = GlassBox(radius: 14)
     private let actionIcon = NSImageView()
     private let actionLabel = UI.label("", size: 12)
@@ -1369,11 +1484,11 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         let bar = UI.stack([actionIcon, actionLabel, NSView(), rejectButton, confirmButton, undoButton, dismissUndoButton], vertical: false, spacing: 6)
         UI.pin(bar, to: actionBar.content, top: 7, left: 12, bottom: 7, right: 8)
 
-        // Kotak input kaca berbentuk kapsul (gaya kolom Search Apple): ikon, teks, tombol kirim bulat
+        // Kotak input kaca (gaya Claude / Gemini): teks multi-baris di atas; pemilih model & tombol kirim di bawah
         input.isBordered = false
         input.drawsBackground = false
         input.focusRingType = .none
-        input.font = .systemFont(ofSize: 14)
+        input.font = .systemFont(ofSize: 13.5)
         input.placeholderString = "Tulis tugas atau tanya asisten…"
         // Multi-baris: ↩ kirim, ⇧↩ (atau ⌥↩) baris baru — lihat control(_:textView:doCommandBy:)
         input.usesSingleLineMode = false
@@ -1385,32 +1500,31 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         input.target = self
         input.action = #selector(send)
         input.setAccessibilityLabel("Pesan untuk asisten")
-        let spark = NSImageView(image: UI.symbol("sparkles", 15) ?? NSImage())
-        spark.contentTintColor = .secondaryLabelColor
-        let send = NSButton(image: UI.symbol("arrow.up", 13, weight: .bold) ?? NSImage(), target: self, action: #selector(send))
+        modelPicker.onOpenMenu = { [weak self] v in self?.showModelMenu(from: v) }
+        let send = NSButton(image: UI.symbol("arrow.up", 12, weight: .bold) ?? NSImage(), target: self, action: #selector(send))
         send.isBordered = false
         send.contentTintColor = Theme.accentText
         send.toolTip = "Kirim (↩) · baris baru (⇧↩)"
         send.setAccessibilityLabel("Kirim")
         UI.pin(send, to: sendBox)
         let box = inputGlass.content
-        for v in [spark, input, sendBox] as [NSView] {
+        for v in [input, modelPicker, sendBox] as [NSView] {
             v.translatesAutoresizingMaskIntoConstraints = false
             box.addSubview(v)
         }
         NSLayoutConstraint.activate([
             inputGlassHeight,
             inputHeight,
-            // Ikon & tombol kirim menempel di baris terakhir saat input tumbuh (seperti Pesan/Messages)
-            spark.leadingAnchor.constraint(equalTo: box.leadingAnchor, constant: 14),
-            spark.centerYAnchor.constraint(equalTo: sendBox.centerYAnchor),
-            input.leadingAnchor.constraint(equalTo: spark.trailingAnchor, constant: 8),
-            input.centerYAnchor.constraint(equalTo: box.centerYAnchor),
-            input.trailingAnchor.constraint(equalTo: sendBox.leadingAnchor, constant: -8),
+            input.topAnchor.constraint(equalTo: box.topAnchor, constant: 10),
+            input.leadingAnchor.constraint(equalTo: box.leadingAnchor, constant: 14),
+            input.trailingAnchor.constraint(equalTo: box.trailingAnchor, constant: -14),
+            modelPicker.leadingAnchor.constraint(equalTo: box.leadingAnchor, constant: 10),
+            modelPicker.centerYAnchor.constraint(equalTo: sendBox.centerYAnchor),
+            modelPicker.trailingAnchor.constraint(lessThanOrEqualTo: sendBox.leadingAnchor, constant: -8),
             sendBox.trailingAnchor.constraint(equalTo: box.trailingAnchor, constant: -7),
             sendBox.bottomAnchor.constraint(equalTo: box.bottomAnchor, constant: -7),
-            sendBox.widthAnchor.constraint(equalToConstant: 30),
-            sendBox.heightAnchor.constraint(equalToConstant: 30),
+            sendBox.widthAnchor.constraint(equalToConstant: 28),
+            sendBox.heightAnchor.constraint(equalToConstant: 28),
         ])
 
         // Chat memenuhi seluruh area; input & bar aksi melayang di atasnya → teks yang lewat di belakang jadi buram.
@@ -1448,7 +1562,7 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         let height = min(max(ceil(h), line), line * PopoverController.inputMaxLines)
         guard inputHeight.constant != height else { return }
         inputHeight.constant = height
-        inputGlassHeight.constant = max(44, height + 26)
+        inputGlassHeight.constant = max(66, height + 48)
     }
 
     /// Pesan pengguna: gelembung teal lembut, rata kanan, maks ±75% lebar.
@@ -1535,6 +1649,7 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         [confirmButton, rejectButton, undoButton].forEach { $0.isEnabled = !busy }
         input.isEnabled = !busy
         sendBox.alphaValue = busy ? 0.4 : 1
+        updateModelPicker()
         updateSuggestions()
         // Hapus riwayat: hanya di tab Chat, saat terhubung, dan tidak sedang menunggu server
         clearButton.isEnabled = !busy && store.connected && mode == .chat
@@ -1594,6 +1709,110 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         sendMessage(input.stringValue)
     }
 
+    /// Model yang sedang aktif dipakai di tab Chat (pilihan sementara, atau bawaan user/server).
+    private var activeChatModel: AIModelOption? {
+        if let id = selectedModelId, let m = store.aiModels.first(where: { $0.id == id }) { return m }
+        return store.effectiveDefaultModel
+    }
+
+    private func updateModelPicker() {
+        let models = store.aiModels
+        if let id = selectedModelId, !models.contains(where: { $0.id == id }) { selectedModelId = nil }
+        guard store.connected, store.aiEnabled, !models.isEmpty else {
+            modelPicker.isHidden = true
+            return
+        }
+        modelPicker.isHidden = false
+        modelPicker.isEnabled = !busy
+        let active = activeChatModel
+        let label = active?.label ?? store.effectiveDefaultLabel
+        let source: String
+        if let id = selectedModelId, id != store.effectiveDefaultModel?.id {
+            source = "pilihan chat ini"
+        } else if store.userDefaultModelID > 0 {
+            source = "bawaan saya"
+        } else {
+            source = "bawaan server"
+        }
+        let selectable = models.count > 1 || store.userDefaultModelID > 0
+        let tip = selectable ? "Model AI: \(label) (\(source)) — klik untuk ganti" : "Model AI: \(label) (\(source))"
+        modelPicker.configure(title: label, tip: tip, selectable: selectable)
+    }
+
+    private func showModelMenu(from anchor: NSView) {
+        let models = store.aiModels
+        guard !models.isEmpty else { return }
+        let menu = NSMenu()
+        let activeId = activeChatModel?.id ?? 0
+        let userDef = store.userDefaultModelID
+        let serverDef = store.serverDefaultModelID
+
+        for m in models {
+            var title = m.label
+            if m.id == userDef {
+                title += " (bawaan saya)"
+            } else if m.id == serverDef {
+                title += " (bawaan server)"
+            }
+            let item = NSMenuItem(title: title, action: #selector(pickChatModel(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = m.id
+            if m.id == activeId { item.state = .on }
+            menu.addItem(item)
+        }
+
+        var hasActions = false
+        if let active = activeChatModel, active.id != userDef {
+            menu.addItem(.separator())
+            hasActions = true
+            let save = NSMenuItem(title: "Jadikan “\(active.label)” bawaan saya", action: #selector(saveDefaultChatModel(_:)), keyEquivalent: "")
+            save.target = self
+            save.representedObject = active.id
+            menu.addItem(save)
+        }
+        if userDef > 0 {
+            if !hasActions { menu.addItem(.separator()) }
+            let serverName = store.serverDefaultModelLabel
+            let title = serverName.isEmpty ? "Ikuti bawaan server" : "Ikuti bawaan server (\(serverName))"
+            let reset = NSMenuItem(title: title, action: #selector(resetDefaultChatModel), keyEquivalent: "")
+            reset.target = self
+            menu.addItem(reset)
+        }
+
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: anchor.bounds.height + 4), in: anchor)
+    }
+
+    @objc private func pickChatModel(_ item: NSMenuItem) {
+        guard let id = item.representedObject as? Int64 else { return }
+        selectedModelId = (id == store.effectiveDefaultModel?.id) ? nil : id
+        updateModelPicker()
+    }
+
+    @objc private func saveDefaultChatModel(_ item: NSMenuItem) {
+        guard let id = item.representedObject as? Int64 else { return }
+        app.setDefaultModel(id) { [weak self] err in
+            guard let self else { return }
+            if let err {
+                self.addAssistant("Gagal menyimpan model bawaan: \(err.description)", error: true)
+            } else {
+                self.selectedModelId = nil
+                self.updateModelPicker()
+            }
+        }
+    }
+
+    @objc private func resetDefaultChatModel() {
+        app.setDefaultModel(0) { [weak self] err in
+            guard let self else { return }
+            if let err {
+                self.addAssistant("Gagal mengatur ulang model bawaan: \(err.description)", error: true)
+            } else {
+                self.selectedModelId = nil
+                self.updateModelPicker()
+            }
+        }
+    }
+
     /// Kirim pesan dari kotak input atau dari chip contoh pertanyaan.
     private func sendMessage(_ raw: String) {
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1603,7 +1822,7 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         addUser(text)
         busy = true
         setThinking(true)
-        store.api.chat(text) { [weak self] r in
+        store.api.chat(text, modelId: selectedModelId) { [weak self] r in
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.setThinking(false)
@@ -5125,6 +5344,14 @@ final class SettingsWindow: NSObject {
     private lazy var notifySwitch = Form.toggle(self, #selector(notifyChanged(_:)))
     private lazy var loginSwitch = Form.toggle(self, #selector(loginChanged(_:)))
     private lazy var suggestSwitch = Form.toggle(self, #selector(suggestChanged(_:)))
+    /// Model AI bawaan pilihan pengguna (override bawaan server; disinkronkan lewat /api/me/prefs).
+    private lazy var defaultModelPopup: NSPopUpButton = {
+        let p = NSPopUpButton(frame: .zero, pullsDown: false)
+        p.target = self
+        p.action = #selector(defaultModelChanged(_:))
+        p.setAccessibilityLabel("Model AI bawaan")
+        return p
+    }()
     /// Kelompokkan daftar todo di popover: Waktu | Kategori.
     private lazy var groupControl: NSSegmentedControl = {
         let c = NSSegmentedControl(labels: ["Waktu", "Kategori"], trackingMode: .selectOne, target: self, action: #selector(groupChanged(_:)))
@@ -5188,8 +5415,11 @@ final class SettingsWindow: NSObject {
         general.set([
             Form.section("Menu bar", [
                 Form.row("Tampilkan jumlah todo", "Angka todo hari ini + terlambat di samping ikon ✓.", badgeSwitch),
-                Form.row("Contoh pertanyaan", "Tombol cepat di atas kotak chat, mis. “Apa saja todo hari ini?”.", suggestSwitch),
                 Form.row("Kelompokkan todo", "Daftar di tab Todo: per waktu (tanggal) atau per kategori. Juga lewat klik kanan filter.", groupControl),
+            ]),
+            Form.section("Asisten AI", [
+                Form.row("Model bawaan", "Dipakai otomatis saat mulai chat di Mac maupun web. Tetap bisa diganti langsung di kotak chat.", defaultModelPopup),
+                Form.row("Contoh pertanyaan", "Tombol cepat di atas kotak chat, mis. “Apa saja todo hari ini?”.", suggestSwitch),
             ]),
             Form.section("Notifikasi", [
                 Form.row("Notifikasi di Mac ini", "Pengingat & tenggat dari server dijadwalkan di Mac, jadi tetap muncul walau sedang offline. " +
@@ -5245,6 +5475,7 @@ final class SettingsWindow: NSObject {
         suggestSwitch.state = LocalPrefs.showSuggestions ? .on : .off
         groupControl.selectedSegment = LocalPrefs.todoGroup
         loginSwitch.state = SMAppService.mainApp.status == .enabled ? .on : .off
+        rebuildDefaultModelPopup()
 
         // Akun & Tentang dibangun ulang hanya kalau isinya berubah
         let s = app.store
@@ -5309,6 +5540,42 @@ final class SettingsWindow: NSObject {
                 Form.row("Keluar AI Todo", "Ikon menu bar hilang sampai AI Todo dibuka lagi. Notifikasi yang sudah dijadwalkan tetap muncul.", quit),
             ]),
         ]
+    }
+
+    private func rebuildDefaultModelPopup() {
+        let s = app.store
+        defaultModelPopup.removeAllItems()
+        let models = s.aiModels
+        guard s.connected, !models.isEmpty else {
+            defaultModelPopup.addItem(withTitle: s.connected ? "Belum ada model aktif" : "Belum terhubung")
+            defaultModelPopup.isEnabled = false
+            return
+        }
+        defaultModelPopup.isEnabled = true
+        let serverName = s.serverDefaultModelLabel
+        let defTitle = serverName.isEmpty ? "Ikuti bawaan server" : "Bawaan server (\(serverName))"
+        let defItem = NSMenuItem(title: defTitle, action: nil, keyEquivalent: "")
+        defItem.representedObject = Int64(0)
+        defaultModelPopup.menu?.addItem(defItem)
+        for m in models {
+            let it = NSMenuItem(title: m.label, action: nil, keyEquivalent: "")
+            it.representedObject = m.id
+            defaultModelPopup.menu?.addItem(it)
+        }
+        let wanted = s.userDefaultModelID
+        if let idx = defaultModelPopup.itemArray.firstIndex(where: { ($0.representedObject as? Int64) == wanted }) {
+            defaultModelPopup.selectItem(at: idx)
+        } else {
+            defaultModelPopup.selectItem(at: 0)
+        }
+    }
+
+    @objc func defaultModelChanged(_ p: NSPopUpButton) {
+        guard let id = p.selectedItem?.representedObject as? Int64 else { return }
+        p.isEnabled = false
+        app.setDefaultModel(id) { [weak self] _ in
+            self?.reload()
+        }
     }
 
     @objc func badgeChanged(_ s: NSSwitch) { if (s.state == .on) != LocalPrefs.showBadge { app.toggleBadge() } }
@@ -5731,6 +5998,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: Aksi
 
     @objc func openChat() { showPopover(.chat) }
+
+    /// Simpan pilihan model AI bawaan pengguna ke server (0 = ikuti bawaan server).
+    func setDefaultModel(_ modelId: Int64, _ done: ((APIError?) -> Void)? = nil) {
+        guard store.connected else { done?(.notConnected); return }
+        store.setDefaultModel(modelId, done)
+    }
 
     /// Sinkron ulang manual dari server (tombol ↻ di popover, ⌘R, atau menu klik kanan ikon menu bar).
     func resync(_ done: @escaping () -> Void = {}) {

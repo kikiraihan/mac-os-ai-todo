@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -246,6 +247,7 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 		"user":      u,
 		"timezone":  s.loc(u).String(),
 		"prefs":     scheduler.PrefsFrom(m),
+		"ai":        s.Assistant.Info(),
 		"sessionId": sessionOf(r).ID,
 		"version":   s.Cfg.Version,
 	})
@@ -324,9 +326,45 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) updatePrefs(w http.ResponseWriter, r *http.Request) {
-	var p scheduler.UserPrefs
-	if !decode(w, r, &p) {
+	u := userOf(r)
+	curMap, err := s.DB.GetUserSettings(u.ID)
+	if err != nil {
+		fail(w, err)
 		return
+	}
+	p := scheduler.PrefsFrom(curMap)
+	var in struct {
+		BriefTime      *string `json:"briefTime"`
+		NudgeTime      *string `json:"nudgeTime"`
+		HideContent    *bool   `json:"hideContent"`
+		DueNotify      *bool   `json:"dueNotify"`
+		DefaultModelID *int64  `json:"defaultModelId"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	if in.BriefTime != nil {
+		p.BriefTime = *in.BriefTime
+	}
+	if in.NudgeTime != nil {
+		p.NudgeTime = *in.NudgeTime
+	}
+	if in.HideContent != nil {
+		p.HideContent = *in.HideContent
+	}
+	if in.DueNotify != nil {
+		p.DueNotify = *in.DueNotify
+	}
+	if in.DefaultModelID != nil {
+		if *in.DefaultModelID < 0 {
+			writeErr(w, http.StatusBadRequest, "id model tidak valid")
+			return
+		}
+		if *in.DefaultModelID > 0 && !s.Assistant.CanSelectModel(*in.DefaultModelID) {
+			writeErr(w, http.StatusBadRequest, "model AI tidak tersedia")
+			return
+		}
+		p.DefaultModelID = *in.DefaultModelID
 	}
 	for _, t := range []string{p.BriefTime, p.NudgeTime} {
 		if t != "" && !schedule.ValidTime(t) {
@@ -334,20 +372,29 @@ func (s *Server) updatePrefs(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	u := userOf(r)
 	b := func(v bool) string {
 		if v {
 			return "1"
 		}
 		return "0"
 	}
-	for k, v := range map[string]string{scheduler.KeyBriefTime: p.BriefTime, scheduler.KeyNudgeTime: p.NudgeTime,
-		scheduler.KeyHideContent: b(p.HideContent), scheduler.KeyDueNotify: b(p.DueNotify)} {
+	modelVal := ""
+	if p.DefaultModelID > 0 {
+		modelVal = strconv.FormatInt(p.DefaultModelID, 10)
+	}
+	for k, v := range map[string]string{
+		scheduler.KeyBriefTime:      p.BriefTime,
+		scheduler.KeyNudgeTime:      p.NudgeTime,
+		scheduler.KeyHideContent:    b(p.HideContent),
+		scheduler.KeyDueNotify:      b(p.DueNotify),
+		scheduler.KeyDefaultModelID: modelVal,
+	} {
 		if err := s.DB.SetUserSetting(u.ID, k, v); err != nil {
 			fail(w, err)
 			return
 		}
 	}
+	s.Hub.Bump(u.ID)
 	writeJSON(w, http.StatusOK, map[string]any{"prefs": p})
 }
 

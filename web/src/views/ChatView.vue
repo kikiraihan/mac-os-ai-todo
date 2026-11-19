@@ -1,7 +1,7 @@
 <script setup>
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { get, post, del } from '../api'
-import { onRemoteChange, refreshData, toast, errorText } from '../store'
+import { state, onRemoteChange, refreshData, toast, errorText } from '../store'
 import { timeAgo } from '../dates'
 import BatchCard from '../components/BatchCard.vue'
 import Icon from '../components/Icon.vue'
@@ -15,6 +15,19 @@ const loading = ref(true)
 const hasMore = ref(false)
 const list = ref(null)
 const input = ref(null)
+// 0 = ikuti bawaan (pilihan pengguna di Pengaturan, atau bawaan server)
+const selectedModelId = ref(0)
+const models = computed(() => state.ai?.models || [])
+const defaultModelLabel = computed(() => {
+  const uid = state.prefs?.defaultModelId || 0
+  const userPick = uid ? models.value.find((m) => m.id === uid) : null
+  if (userPick) return userPick.label
+  return state.ai?.defaultModelLabel || models.value[0]?.label || 'Bawaan'
+})
+// Kalau model yang sedang dipilih dihapus/disembunyikan admin, kembali ke bawaan.
+watch(models, (ms) => {
+  if (selectedModelId.value && !ms.some((m) => m.id === selectedModelId.value)) selectedModelId.value = 0
+})
 
 const suggestions = ['Apa saja todo hari ini?', 'Yang terlambat apa?', 'Ringkas minggu ini', '/bantuan']
 
@@ -41,7 +54,9 @@ async function send(msg) {
   messages.value.push({ id: tempId, role: 'user', content: body, createdAt: new Date().toISOString() })
   scrollDown()
   try {
-    const res = await post('/chat', { message: body })
+    const payload = { message: body }
+    if (selectedModelId.value > 0) payload.modelId = selectedModelId.value
+    const res = await post('/chat', payload)
     messages.value = messages.value.filter((m) => m.id !== tempId)
     messages.value.push(res.user, res.assistant)
     if (res.batch) batches.value[res.batch.id] = res.batch
@@ -153,6 +168,12 @@ async function older() {
           enterkeyhint="enter" :disabled="sending" @keydown="onKey"></textarea>
         <button class="btn primary" :disabled="sending || !text.trim()" aria-label="Kirim"><Icon name="send" /></button>
       </form>
+      <div v-if="models.length > 1" class="model-bar">
+        <select v-model.number="selectedModelId" class="model-select" aria-label="Model AI" :disabled="sending">
+          <option :value="0">Bawaan ({{ defaultModelLabel }})</option>
+          <option v-for="m in models" :key="m.id" :value="m.id">{{ m.label }}</option>
+        </select>
+      </div>
     </div>
   </div>
 </template>
@@ -251,6 +272,28 @@ async function older() {
   min-height: 42px;
   max-height: 160px;
   resize: none;
+}
+.model-bar {
+  display: flex;
+  justify-content: flex-start;
+  margin-top: 6px;
+}
+.model-select {
+  width: auto;
+  max-width: 100%;
+  min-height: 0;
+  padding: 4px 10px;
+  font-size: 0.78rem;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+}
+.model-select:hover,
+.model-select:focus {
+  color: var(--text);
+  border-color: var(--border);
+  background: var(--surface);
 }
 @media (max-width: 760px) {
   /* Tinggi layar dikurangi bar menu atas & padding halaman */

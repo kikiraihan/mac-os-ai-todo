@@ -239,6 +239,7 @@ func (s *Server) listChat(w http.ResponseWriter, r *http.Request) {
 func (s *Server) postChat(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Message string `json:"message"`
+		ModelID int64  `json:"modelId"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -257,7 +258,7 @@ func (s *Server) postChat(w http.ResponseWriter, r *http.Request) {
 		}
 		s.chatLimit.add(key)
 	}
-	rep, err := s.Assistant.Handle(r.Context(), u, s.loc(u), in.Message)
+	rep, err := s.Assistant.HandleWithModel(r.Context(), u, s.loc(u), in.Message, in.ModelID)
 	if err != nil {
 		fail(w, err)
 		return

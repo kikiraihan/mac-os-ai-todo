@@ -93,6 +93,12 @@ api.configure(base: base, token: login.token)
 
 guard case .success(let me) = wait(api.me) else { print("me gagal"); exit(1) }
 check(me.user.username == user, "GET /me (zona \(me.timezone))")
+check(me.ai != nil, "GET /me menyertakan info model AI")
+guard case .success(let prefRes) = wait({ api.setDefaultModel(0, $0) }) else { print("setDefaultModel gagal"); exit(1) }
+check((prefRes.prefs.defaultModelId ?? 0) == 0, "PUT /me/prefs defaultModelId=0")
+let badModel = wait { api.setDefaultModel(999_999, $0) }
+if case .failure(.server(400, _)) = badModel { check(true, "PUT /me/prefs model tidak ada → 400") }
+else { check(false, "PUT /me/prefs model tidak ada → 400 (\(badModel))") }
 let tz = Clock.zone(me.timezone)
 
 let now = Date()
