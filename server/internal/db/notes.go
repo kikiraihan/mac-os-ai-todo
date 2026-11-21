@@ -85,6 +85,12 @@ func ListNotes(q Q, userID int64, f NoteFilter) ([]Note, error) {
 	return out, rows.Err()
 }
 
+func CountNotes(q Q, userID int64) (int, error) {
+	var n int
+	err := q.QueryRow(`SELECT COUNT(*) FROM notes WHERE user_id = ?`, userID).Scan(&n)
+	return n, err
+}
+
 func GetNote(q Q, userID, id int64) (Note, error) {
 	return scanNote(q.QueryRow(`SELECT `+noteCols+` FROM notes WHERE id = ? AND user_id = ?`, id, userID))
 }

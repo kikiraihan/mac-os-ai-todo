@@ -13,6 +13,8 @@ import (
 
 const (
 	MaxNoteContent = 20000
+	// MaxNotesPerUser: batas jumlah catatan per pengguna (mencegah database dibanjiri, mis. lewat skrip).
+	MaxNotesPerUser = 5000
 	// autoTitleLen: judul otomatis dari baris pertama isi bila judul dikosongkan.
 	autoTitleLen = 80
 )
@@ -96,7 +98,14 @@ func CreateNote(c *Ctx, in NoteInput) (db.Note, error) {
 	if err := validateNote(&n); err != nil {
 		return n, err
 	}
-	n, err := db.InsertNote(c.Q, n)
+	count, err := db.CountNotes(c.Q, c.UserID)
+	if err != nil {
+		return n, err
+	}
+	if count >= MaxNotesPerUser {
+		return n, invalid("sudah ada %d catatan (batas), hapus yang tidak terpakai dulu", count)
+	}
+	n, err = db.InsertNote(c.Q, n)
 	if err != nil {
 		return n, err
 	}

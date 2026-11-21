@@ -295,6 +295,12 @@ Rancangan: [`../docs/PRD.md`](../docs/PRD.md). Perbarui setiap tugas selesai.
 - [ ] Uji manual di Mac sungguhan: header 4 tab (Chat | Todo | Pengingat | Catatan) + ＋ 🌐 ↻ ⚙ muat tanpa terpotong;
       tab Catatan: tambah link, ubah, sematkan, hapus, ⌘4 / ⌃⇥, ⌘F, Esc
 - [ ] Belum: halaman kelola catatan di jendela Pengaturan Mac (seperti Pengaturan → Todo) — saat ini cukup popover & web
+- [x] 0.21.1: audit keamanan setelah Catatan — tidak ada temuan kritis (isolasi `user_id`, CSRF, undo, link hanya
+      http/https, tanpa `v-html` sudah aman). Hardening: batas 5.000 catatan per pengguna (`core.MaxNotesPerUser`),
+      batas body API 64 → 128 KB supaya isi catatan maksimal (20.000 karakter non-ASCII/emoji) tidak ditolak sebagai
+      "body JSON tidak valid"; `NotesPane(app: self.app)` eksplisit di lazy closure
+- [ ] Pemilik: GitHub Actions berhenti jalan sejak 21 Nov (semua job gagal ±2 detik tanpa log — cek billing / menit
+      Actions di Settings → Billing). Akibatnya kode Swift Catatan belum pernah dikompilasi & deploy #39 belum jalan
 
 ## Berikutnya
 ## Berikutnya

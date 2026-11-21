@@ -29,7 +29,8 @@ const (
 	// tanpa preflight CORS, dan server tidak membuka CORS.
 	csrfHeader = "X-AITodo"
 
-	maxBody = 64 << 10
+	// 128 KB: isi catatan maks. 20.000 karakter (huruf non-ASCII / emoji sampai 4 byte) harus muat.
+	maxBody = 128 << 10
 )
 
 type Config struct {

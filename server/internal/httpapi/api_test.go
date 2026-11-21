@@ -429,4 +429,12 @@ func TestNotesAPI(t *testing.T) {
 	if code, _ := budi.do("GET", "/api/notes", nil, false); code != 403 {
 		t.Fatalf("no csrf header: %d", code)
 	}
+	// Isi maksimal (20.000 karakter) dengan huruf 4 byte tetap muat di batas body.
+	big := strings.Repeat("😀", 20000)
+	if code, out := budi.do("POST", "/api/notes", map[string]any{"title": "emoji", "content": big}, true); code != 200 {
+		t.Fatalf("isi maksimal ditolak: %d %v", code, out)
+	}
+	if code, _ := budi.do("POST", "/api/notes", map[string]any{"title": "x", "content": big + "😀"}, true); code != 400 {
+		t.Fatalf("isi kelebihan diterima: %d", code)
+	}
 }
