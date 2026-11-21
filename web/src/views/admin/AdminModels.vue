@@ -84,13 +84,13 @@ async function remove(m) {
 
 function openEdit(m) {
   error.value = ''
-  editForm.value = { id: m.id, modelId: m.modelId, provider: m.provider, label: m.label, extraBody: m.extraBody, free: m.free }
+  editForm.value = { id: m.id, modelId: m.modelId, provider: m.provider, label: m.label, extraBody: m.extraBody, free: m.free, visible: m.visible }
 }
 async function saveEdit() {
   error.value = ''
   const f = editForm.value
   try {
-    await put(`/admin/ai/models/${f.id}`, { label: f.label, extraBody: f.extraBody, free: f.free })
+    await put(`/admin/ai/models/${f.id}`, { label: f.label, extraBody: f.extraBody, free: f.free, visible: f.visible })
     editForm.value = null
     await load()
   } catch (e) {
@@ -100,7 +100,7 @@ async function saveEdit() {
 
 function openAdd() {
   error.value = ''
-  addForm.value = { provider: providers.value[0]?.key || 'kenari', modelId: '', label: '', extraBody: '', free: true }
+  addForm.value = { provider: providers.value[0]?.key || 'kenari', modelId: '', label: '', extraBody: '', free: true, visible: true }
 }
 async function saveAdd() {
   error.value = ''
@@ -160,10 +160,11 @@ onMounted(() => load().catch((e) => toast(errorText(e), 'error')))
     </div>
 
     <div class="card">
-      <h3>Urutan fallback</h3>
-      <p class="muted small">Model yang dipakai asisten = model aktif paling atas yang provider-nya punya API key. Klik
-        <b>Jadikan utama</b> untuk memilihnya. Asisten mencoba model aktif dari atas ke bawah. Kalau satu penuh (429), error, atau ditolak, ia pindah ke model
-        berikutnya — tidak pernah ke model berbayar otomatis karena hanya model di katalog ini yang dipakai.</p>
+      <h3>Urutan fallback & pilihan model</h3>
+      <p class="muted small">Model bawaan = model aktif paling atas yang provider-nya punya API key. Klik
+        <b>Jadikan utama</b> untuk memilihnya. Model aktif yang dicentang tampil juga muncul di pilihan model chat
+        pengguna (pengguna tetap bisa memilih model sendiri). Kalau satu model penuh (429), error, atau ditolak,
+        asisten pindah ke model aktif berikutnya — tidak pernah ke model berbayar otomatis.</p>
       <p v-if="chain.length" class="small">Sekarang: <span v-for="(m, i) in chain" :key="m.id">{{ i ? ' → ' : '' }}<b>{{ m.label }}</b></span></p>
       <p v-else class="error">Belum ada model aktif yang provider-nya punya API key. Isi <code>KENARI_API_KEY</code> /
         <code>AGNES_API_KEY</code> / <code>OPENROUTER_API_KEY</code> di <code>.env</code> server, lalu restart server.</p>
@@ -184,7 +185,8 @@ onMounted(() => load().catch((e) => toast(errorText(e), 'error')))
             </td>
             <td>
               <b>{{ m.label }}</b> <span v-if="m.free" class="tag ok">gratis</span> <span v-if="m.builtin" class="tag">bawaan</span>
-              <span v-if="chain[0]?.id === m.id" class="tag ok">dipakai sekarang</span>
+              <span v-if="chain[0]?.id === m.id" class="tag ok">default</span>
+              <span v-if="!m.visible" class="tag">tersembunyi</span>
               <div class="small muted mono">{{ m.modelId }}</div>
               <div v-if="m.extraBody" class="small muted mono">{{ m.extraBody }}</div>
             </td>
@@ -221,7 +223,8 @@ onMounted(() => load().catch((e) => toast(errorText(e), 'error')))
           <textarea v-model="editForm.extraBody" class="mono" rows="3" placeholder='{"reasoning_effort":"low"}'></textarea>
         </label>
         <p class="hint">Digabung ke body request, mis. mematikan "thinking" supaya token tidak habis. <code>model</code> dan <code>messages</code> tidak bisa ditimpa.</p>
-        <label class="check"><input v-model="editForm.free" type="checkbox" /> Model gratis</label>
+        <label class="check"><input v-model="editForm.free" type="checkbox" /> Model gratis</label><br />
+        <label class="check"><input v-model="editForm.visible" type="checkbox" /> Tampilkan di pilihan model chat</label>
       </form>
       <template #footer>
         <button class="btn" type="button" @click="editForm = null">Batal</button>
@@ -240,7 +243,8 @@ onMounted(() => load().catch((e) => toast(errorText(e), 'error')))
         </label>
         <label class="field"><span>Label</span><input v-model="addForm.label" type="text" maxlength="100" /></label>
         <label class="field"><span>Extra body (JSON, opsional)</span><textarea v-model="addForm.extraBody" class="mono" rows="2"></textarea></label>
-        <label class="check"><input v-model="addForm.free" type="checkbox" /> Model gratis</label>
+        <label class="check"><input v-model="addForm.free" type="checkbox" /> Model gratis</label><br />
+        <label class="check"><input v-model="addForm.visible" type="checkbox" /> Tampilkan di pilihan model chat</label>
       </form>
       <template #footer>
         <button class="btn" type="button" @click="addForm = null">Batal</button>

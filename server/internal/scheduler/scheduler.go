@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,23 +23,25 @@ const (
 	dueLead = 10 * time.Minute
 
 	// Pengaturan per pengguna (user_settings).
-	KeyBriefTime   = "brief_time"   // "06:30", "" = mati
-	KeyNudgeTime   = "nudge_time"   // "19:00", "" = mati
-	KeyHideContent = "hide_content" // "1" = sembunyikan isi notifikasi
-	KeyDueNotify   = "due_notify"   // "0" = jangan beri tahu tenggat
-	keyLastBrief   = "last_brief_date"
-	keyLastNudge   = "last_nudge_date"
+	KeyBriefTime      = "brief_time"          // "06:30", "" = mati
+	KeyNudgeTime      = "nudge_time"          // "19:00", "" = mati
+	KeyHideContent    = "hide_content"        // "1" = sembunyikan isi notifikasi
+	KeyDueNotify      = "due_notify"          // "0" = jangan beri tahu tenggat
+	KeyDefaultModelID = "ai_default_model_id" // id baris ai_models pilihan pengguna; "" / "0" = ikut bawaan admin
+	keyLastBrief      = "last_brief_date"
+	keyLastNudge      = "last_nudge_date"
 
 	DefaultBriefTime = "06:30"
 	DefaultNudgeTime = "19:00"
 )
 
-// UserPrefs adalah pengaturan notifikasi seorang pengguna.
+// UserPrefs adalah pengaturan notifikasi & asisten seorang pengguna.
 type UserPrefs struct {
-	BriefTime   string `json:"briefTime"`
-	NudgeTime   string `json:"nudgeTime"`
-	HideContent bool   `json:"hideContent"`
-	DueNotify   bool   `json:"dueNotify"`
+	BriefTime      string `json:"briefTime"`
+	NudgeTime      string `json:"nudgeTime"`
+	HideContent    bool   `json:"hideContent"`
+	DueNotify      bool   `json:"dueNotify"`
+	DefaultModelID int64  `json:"defaultModelId"`
 }
 
 func PrefsFrom(m map[string]string) UserPrefs {
@@ -51,6 +54,11 @@ func PrefsFrom(m map[string]string) UserPrefs {
 	}
 	p.HideContent = m[KeyHideContent] == "1"
 	p.DueNotify = m[KeyDueNotify] != "0"
+	if v := strings.TrimSpace(m[KeyDefaultModelID]); v != "" {
+		if id, err := strconv.ParseInt(v, 10, 64); err == nil && id > 0 {
+			p.DefaultModelID = id
+		}
+	}
 	return p
 }
 

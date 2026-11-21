@@ -9,6 +9,7 @@ export const state = reactive({
   // Akun admin (terpisah dari akun pengguna). null = belum masuk mode admin.
   admin: null,
   prefs: null,
+  ai: { enabled: true, defaultModelId: 0, defaultModelLabel: '', models: [] },
   timezone: '',
   todos: [],
   reminders: [],
@@ -41,6 +42,7 @@ export async function loadMe() {
     const data = await get('/me')
     state.me = data.user
     state.prefs = data.prefs
+    state.ai = data.ai || { enabled: true, defaultModelId: 0, defaultModelLabel: '', models: [] }
     state.timezone = data.timezone
     return true
   } catch (e) {
@@ -99,7 +101,7 @@ export function startSync() {
         state.online = true
         delay = 1000
         if (res.rev !== state.rev) {
-          await refreshData()
+          await Promise.all([refreshData(), loadMe().catch(() => {})])
           state.rev = res.rev
           listeners.forEach((fn) => fn())
         }

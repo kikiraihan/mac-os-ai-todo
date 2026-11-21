@@ -315,7 +315,7 @@ func seedModels(d *db.DB) error {
 			continue
 		}
 		if _, err := d.InsertModel(db.AIModel{Provider: b.Provider, ModelID: b.ModelID, Label: b.Label, ExtraBody: b.ExtraBody,
-			Builtin: true, Free: b.Free}); err != nil {
+			Builtin: true, Free: b.Free, Visible: true}); err != nil {
 			return err
 		}
 	}

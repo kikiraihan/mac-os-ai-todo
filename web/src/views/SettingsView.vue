@@ -11,7 +11,7 @@ import { appVersion, update, checkUpdate, applyUpdate, forceReload, serverNewer 
 const router = useRouter()
 const displayName = ref(state.me.displayName)
 const timezone = ref(state.me.timezone || '')
-const prefs = ref({ ...state.prefs })
+const prefs = ref({ defaultModelId: 0, ...state.prefs })
 const pw = ref({ current: '', new: '' })
 const sessions = ref([])
 const currentId = ref(0)
@@ -90,6 +90,17 @@ async function savePrefs() {
     const res = await put('/me/prefs', prefs.value)
     state.prefs = res.prefs
     toast('Pengaturan notifikasi disimpan')
+  } catch (e) {
+    toast(errorText(e), 'error')
+  }
+}
+
+async function saveDefaultModel() {
+  try {
+    const res = await put('/me/prefs', { defaultModelId: Number(prefs.value.defaultModelId) || 0 })
+    state.prefs = res.prefs
+    prefs.value = { defaultModelId: 0, ...res.prefs }
+    toast('Model AI bawaan disimpan')
   } catch (e) {
     toast(errorText(e), 'error')
   }
@@ -199,6 +210,17 @@ onMounted(() => {
       <label class="check"><input v-model="prefs.dueNotify" type="checkbox" /> Beri tahu 10 menit sebelum tenggat todo berjam</label><br />
       <label class="check"><input v-model="prefs.hideContent" type="checkbox" /> Sembunyikan isi notifikasi di layar kunci</label>
       <div class="actions"><button class="btn primary sm" @click="savePrefs">Simpan</button></div>
+    </section>
+
+    <section v-if="state.ai?.models?.length" class="card">
+      <h3>Asisten AI</h3>
+      <label class="field"><span>Model bawaan</span>
+        <select v-model.number="prefs.defaultModelId" @change="saveDefaultModel">
+          <option :value="0">Bawaan server{{ state.ai.defaultModelLabel ? ` (${state.ai.defaultModelLabel})` : '' }}</option>
+          <option v-for="m in state.ai.models" :key="m.id" :value="m.id">{{ m.label }}</option>
+        </select>
+      </label>
+      <p class="hint">Dipakai otomatis di web dan aplikasi Mac saat mulai chat. Tetap bisa diganti langsung di kotak chat.</p>
     </section>
 
     <section class="card">

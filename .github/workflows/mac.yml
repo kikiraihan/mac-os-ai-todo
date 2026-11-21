@@ -87,3 +87,5 @@ jobs:
           files: |
             dist/AITodo.zip
             dist/AITodo.zip.sig
+
+# Dummy: memicu ulang rilis v0.19.0 (sebelumnya tersendat kuota GitHub)

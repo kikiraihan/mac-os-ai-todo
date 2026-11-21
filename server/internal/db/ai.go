@@ -23,23 +23,50 @@ type AIModel struct {
 	SortOrder     int    `json:"sortOrder"`
 	Builtin       bool   `json:"builtin"`
 	Free          bool   `json:"free"`
+	Visible       bool   `json:"visible"` // tampil di pilihan model chat pengguna
 	LastCheckedAt string `json:"lastCheckedAt"`
 	LastLatencyMs int    `json:"lastLatencyMs"`
 	CreatedAt     string `json:"createdAt"`
 	UpdatedAt     string `json:"updatedAt"`
 }
 
-const modelCols = `id, provider, model_id, label, status, status_note, extra_body, sort_order, builtin, free, last_checked_at, last_latency_ms, created_at, updated_at`
+const modelCols = `id, provider, model_id, label, status, status_note, extra_body, sort_order, builtin, free, visible, last_checked_at, last_latency_ms, created_at, updated_at`
+
+func (d *DB) ensureModelVisible() error {
+	rows, err := d.Query(`PRAGMA table_info(ai_models)`)
+	if err != nil {
+		return err
+	}
+	has := false
+	for rows.Next() {
+		var cid, notnull, pk int
+		var name, typ string
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk); err != nil {
+			rows.Close()
+			return err
+		}
+		if name == "visible" {
+			has = true
+		}
+	}
+	rows.Close()
+	if has {
+		return nil
+	}
+	_, err = d.Exec(`ALTER TABLE ai_models ADD COLUMN visible INTEGER NOT NULL DEFAULT 1`)
+	return err
+}
 
 func scanModel(row interface{ Scan(...any) error }) (AIModel, error) {
 	var m AIModel
-	var builtin, free int
+	var builtin, free, visible int
 	err := row.Scan(&m.ID, &m.Provider, &m.ModelID, &m.Label, &m.Status, &m.StatusNote, &m.ExtraBody, &m.SortOrder,
-		&builtin, &free, &m.LastCheckedAt, &m.LastLatencyMs, &m.CreatedAt, &m.UpdatedAt)
+		&builtin, &free, &visible, &m.LastCheckedAt, &m.LastLatencyMs, &m.CreatedAt, &m.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return m, ErrNotFound
 	}
-	m.Builtin, m.Free = builtin == 1, free == 1
+	m.Builtin, m.Free, m.Visible = builtin == 1, free == 1, visible == 1
 	return m, err
 }
 
@@ -90,9 +117,9 @@ func (d *DB) InsertModel(m AIModel) (AIModel, error) {
 	if m.Status == "" {
 		m.Status = ModelActive
 	}
-	res, err := d.Exec(`INSERT INTO ai_models (provider, model_id, label, status, status_note, extra_body, sort_order, builtin, free, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, m.Provider, m.ModelID, m.Label, m.Status, m.StatusNote, m.ExtraBody, m.SortOrder,
-		boolInt(m.Builtin), boolInt(m.Free), now, now)
+	res, err := d.Exec(`INSERT INTO ai_models (provider, model_id, label, status, status_note, extra_body, sort_order, builtin, free, visible, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, m.Provider, m.ModelID, m.Label, m.Status, m.StatusNote, m.ExtraBody, m.SortOrder,
+		boolInt(m.Builtin), boolInt(m.Free), boolInt(m.Visible), now, now)
 	if err != nil {
 		return m, err
 	}
@@ -102,8 +129,8 @@ func (d *DB) InsertModel(m AIModel) (AIModel, error) {
 }
 
 func (d *DB) UpdateModel(m AIModel) error {
-	_, err := d.Exec(`UPDATE ai_models SET label = ?, status = ?, status_note = ?, extra_body = ?, free = ?, updated_at = ? WHERE id = ?`,
-		m.Label, m.Status, m.StatusNote, m.ExtraBody, boolInt(m.Free), Now(), m.ID)
+	_, err := d.Exec(`UPDATE ai_models SET label = ?, status = ?, status_note = ?, extra_body = ?, free = ?, visible = ?, updated_at = ? WHERE id = ?`,
+		m.Label, m.Status, m.StatusNote, m.ExtraBody, boolInt(m.Free), boolInt(m.Visible), Now(), m.ID)
 	return err
 }
 

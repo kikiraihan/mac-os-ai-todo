@@ -46,6 +46,25 @@ func (h *Hub) Bump(userID int64) {
 	}
 }
 
+// BumpAll membangunkan semua pengguna yang sedang long-poll (mis. saat admin
+// mengubah katalog / urutan model AI).
+func (h *Hub) BumpAll() {
+	h.mu.Lock()
+	h.base++
+	for uid := range h.rev {
+		h.rev[uid]++
+	}
+	var all []chan struct{}
+	for uid, ws := range h.waiters {
+		all = append(all, ws...)
+		delete(h.waiters, uid)
+	}
+	h.mu.Unlock()
+	for _, w := range all {
+		close(w)
+	}
+}
+
 // Wait menunggu sampai revisi > since, ctx selesai, atau timeout.
 func (h *Hub) Wait(ctx context.Context, userID, since int64, timeout time.Duration) int64 {
 	h.mu.Lock()

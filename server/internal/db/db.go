@@ -147,6 +147,7 @@ CREATE TABLE IF NOT EXISTS ai_models (
 	sort_order INTEGER NOT NULL DEFAULT 0,
 	builtin INTEGER NOT NULL DEFAULT 0,
 	free INTEGER NOT NULL DEFAULT 0,
+	visible INTEGER NOT NULL DEFAULT 1,
 	last_checked_at TEXT NOT NULL DEFAULT '',
 	last_latency_ms INTEGER NOT NULL DEFAULT 0,
 	created_at TEXT NOT NULL,
@@ -253,6 +254,10 @@ func Open(path string) (*DB, error) {
 	if err := d.splitAdmins(); err != nil {
 		sqlDB.Close()
 		return nil, fmt.Errorf("migrate admin: %w", err)
+	}
+	if err := d.ensureModelVisible(); err != nil {
+		sqlDB.Close()
+		return nil, fmt.Errorf("migrate ai_models: %w", err)
 	}
 	return d, nil
 }

@@ -139,8 +139,14 @@ func (a *Assistant) changed(userID int64) {
 	}
 }
 
-// Handle memproses satu pesan pengguna.
+// Handle memproses satu pesan pengguna memakai model bawaan (pilihan pengguna atau bawaan admin).
 func (a *Assistant) Handle(ctx context.Context, user db.User, loc *time.Location, text string) (*Reply, error) {
+	return a.HandleWithModel(ctx, user, loc, text, 0)
+}
+
+// HandleWithModel memproses satu pesan pengguna dengan model pilihan (preferredModelID > 0)
+// atau 0 untuk mengikuti default pilihan pengguna / bawaan admin.
+func (a *Assistant) HandleWithModel(ctx context.Context, user db.User, loc *time.Location, text string, preferredModelID int64) (*Reply, error) {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return nil, &core.ValidationError{Msg: "pesan kosong"}
@@ -156,7 +162,7 @@ func (a *Assistant) Handle(ctx context.Context, user db.User, loc *time.Location
 	if strings.HasPrefix(text, "/") {
 		out = a.shortcut(user, loc, text)
 	} else {
-		out = a.runAI(ctx, user, loc, text, userMsg.ID)
+		out = a.runAI(ctx, user, loc, text, userMsg.ID, preferredModelID)
 	}
 	msg := db.ChatMessage{UserID: user.ID, Role: "assistant", Content: out.text, Provider: out.provider, Model: out.model,
 		LatencyMs: out.latencyMs}
@@ -228,6 +234,24 @@ func parsePlan(content string) (plan, error) {
 	return p, nil
 }
 
+// PublicModel adalah ringkasan model AI yang boleh dilihat & dipilih pengguna di chat.
+type PublicModel struct {
+	ID       int64  `json:"id"`
+	Provider string `json:"provider"`
+	ModelID  string `json:"modelId"`
+	Label    string `json:"label"`
+	Free     bool   `json:"free"`
+}
+
+// AIInfo dikembalikan di GET /api/me supaya klien (Mac & web) tahu apakah asisten
+// aktif, model bawaan server, dan daftar model yang boleh dipilih pengguna.
+type AIInfo struct {
+	Enabled           bool          `json:"enabled"`
+	DefaultModelID    int64         `json:"defaultModelId"`
+	DefaultModelLabel string        `json:"defaultModelLabel"`
+	Models            []PublicModel `json:"models"`
+}
+
 func (a *Assistant) activeModels() ([]db.AIModel, error) {
 	all, err := a.DB.ListModels()
 	if err != nil {
@@ -242,7 +266,81 @@ func (a *Assistant) activeModels() ([]db.AIModel, error) {
 	return out, nil
 }
 
-func (a *Assistant) runAI(ctx context.Context, user db.User, loc *time.Location, text string, userMsgID int64) answer {
+// Info mengembalikan status asisten, model bawaan admin (model aktif paling atas),
+// dan daftar model aktif yang ditandai tampil untuk pengguna.
+func (a *Assistant) Info() AIInfo {
+	s := LoadSettings(a.DB)
+	info := AIInfo{Enabled: s.Enabled, Models: []PublicModel{}}
+	models, err := a.activeModels()
+	if err != nil || len(models) == 0 {
+		return info
+	}
+	info.DefaultModelID = models[0].ID
+	info.DefaultModelLabel = models[0].Label
+	for _, m := range models {
+		if m.Visible {
+			info.Models = append(info.Models, PublicModel{
+				ID: m.ID, Provider: m.Provider, ModelID: m.ModelID, Label: m.Label, Free: m.Free,
+			})
+		}
+	}
+	return info
+}
+
+// CanSelectModel memeriksa apakah model dengan id ini aktif, punya API key, dan
+// diizinkan tampil untuk pengguna.
+func (a *Assistant) CanSelectModel(id int64) bool {
+	if id <= 0 {
+		return false
+	}
+	models, err := a.activeModels()
+	if err != nil {
+		return false
+	}
+	for _, m := range models {
+		if m.ID == id && m.Visible {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *Assistant) userDefaultModelID(userID int64) int64 {
+	m, err := a.DB.GetUserSettings(userID)
+	if err != nil {
+		return 0
+	}
+	v := strings.TrimSpace(m["ai_default_model_id"])
+	if v == "" {
+		return 0
+	}
+	id, err := strconv.ParseInt(v, 10, 64)
+	if err != nil || id <= 0 {
+		return 0
+	}
+	return id
+}
+
+func prioritizeModel(models []db.AIModel, id int64) []db.AIModel {
+	if id <= 0 {
+		return models
+	}
+	for i, m := range models {
+		if m.ID == id && m.Visible {
+			if i == 0 {
+				return models
+			}
+			out := make([]db.AIModel, 0, len(models))
+			out = append(out, m)
+			out = append(out, models[:i]...)
+			out = append(out, models[i+1:]...)
+			return out
+		}
+	}
+	return models
+}
+
+func (a *Assistant) runAI(ctx context.Context, user db.User, loc *time.Location, text string, userMsgID, preferredModelID int64) answer {
 	settings := LoadSettings(a.DB)
 	if !settings.Enabled {
 		return answer{text: "Asisten AI sedang dimatikan admin. Perintah tanpa AI tetap bisa dipakai — ketik /bantuan."}
@@ -255,6 +353,11 @@ func (a *Assistant) runAI(ctx context.Context, user db.User, loc *time.Location,
 	if len(models) == 0 {
 		return answer{text: "Asisten AI belum siap: belum ada model aktif yang API key-nya terpasang. Minta admin memeriksa Admin → Model AI. Sementara itu pakai /bantuan untuk perintah tanpa AI."}
 	}
+	chosenID := preferredModelID
+	if chosenID <= 0 {
+		chosenID = a.userDefaultModelID(user.ID)
+	}
+	models = prioritizeModel(models, chosenID)
 
 	system, err := a.systemPrompt(user, loc, settings)
 	if err != nil {

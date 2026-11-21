@@ -24,12 +24,29 @@ struct Prefs: Codable {
     var nudgeTime: String
     var hideContent: Bool
     var dueNotify: Bool
+    var defaultModelId: Int64? = nil
+}
+
+struct AIModelOption: Codable, Equatable {
+    let id: Int64
+    let provider: String
+    let modelId: String
+    let label: String
+    let free: Bool
+}
+
+struct AIInfo: Codable, Equatable {
+    let enabled: Bool
+    let defaultModelId: Int64
+    let defaultModelLabel: String
+    let models: [AIModelOption]
 }
 
 struct Me: Codable {
     let user: User
     let timezone: String
     let prefs: Prefs
+    let ai: AIInfo?
     let version: String?
 }
 
@@ -407,8 +424,17 @@ final class APIClient {
     }
 
     /// Pesan ke asisten. AI bisa butuh sampai ±75 detik.
-    func chat(_ message: String, _ c: @escaping (Result<ChatReply, APIError>) -> Void) {
-        send("POST", "/chat", body: ["message": message], timeout: 95, as: ChatReply.self, completion: c)
+    /// modelId > 0 memilih model tertentu untuk pesan ini; nil/0 = ikuti bawaan (pilihan pengguna / server).
+    func chat(_ message: String, modelId: Int64? = nil, _ c: @escaping (Result<ChatReply, APIError>) -> Void) {
+        var body: [String: Any] = ["message": message]
+        if let modelId, modelId > 0 { body["modelId"] = modelId }
+        send("POST", "/chat", body: body, timeout: 95, as: ChatReply.self, completion: c)
+    }
+
+    struct PrefsResult: Decodable { let prefs: Prefs }
+    /// Simpan model AI bawaan pilihan pengguna (0 = ikuti bawaan server).
+    func setDefaultModel(_ modelId: Int64, _ c: @escaping (Result<PrefsResult, APIError>) -> Void) {
+        send("PUT", "/me/prefs", body: ["defaultModelId": modelId], as: PrefsResult.self, completion: c)
     }
 
     struct BatchResult: Decodable { let batch: BatchView }

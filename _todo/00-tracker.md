@@ -270,8 +270,20 @@ Rancangan: [`../docs/PRD.md`](../docs/PRD.md). Perbarui setiap tugas selesai.
       diuji di `Tests/ClientCheck`
 - [ ] Uji manual di Mac sungguhan: ⇧⌥⌘T dari app lain, ⌘1–3 & ⌃⇥ di popover (juga saat mengetik di chat), ubah ⌘N
       jadi ⇧⌘N → tooltip & menu klik kanan ikut berubah, rekam ⌘C → ditolak, matikan ⌥⌘T → tidak membuka popover
+- [x] 0.20.0: **pilihan model AI di chat & default pribadi pengguna** —
+      - **Server**: kolom `ai_models.visible` (bawaan `1`, migrasi otomatis) untuk mengatur model mana yang tampil di pilihan chat;
+        `GET /api/me` mengembalikan `ai` (`enabled`, `defaultModelId`, `defaultModelLabel`, `models`); `PUT /api/me/prefs`
+        menerima `defaultModelId` (`0` = ikut bawaan server, `>0` = override default pribadi pengguna); `POST /api/chat` menerima
+        `modelId` per pesan (fallback tetap jalan ke model aktif lain); `Hub.BumpAll()` membangunkan klien saat admin mengubah model.
+      - **Admin**: di Admin → Model AI, checkbox "Tampilkan di pilihan model chat" (modal Tambah & Ubah, tag `tersembunyi` bila mati),
+        urutan paling atas tetap menjadi model default server.
+      - **Mac**: pemilih model compact gaya Claude/Gemini (`[✨ Nama model ▾]`) di baris bawah kotak input tab Chat — bisa ganti model
+        untuk chat ini, langsung "Jadikan bawaan saya", atau "Ikuti bawaan server"; juga dropdown **Model bawaan** di Pengaturan → Umum
+        (tersinkron ke server).
+      - **Web**: pemilih model compact di composer Chat & dropdown **Model bawaan** di Pengaturan → Asisten AI.
+- [ ] Uji manual di Mac sungguhan: pilih model di tab Chat popover, jadikan bawaan saya, cek sinkron di Pengaturan → Umum & Web
 
-- [x] 0.20.0: **Catatan** — setara todo tapi tanpa waktu (teks umum, kumpulan link). Server: tabel `notes`
+- [x] 0.21.0: **Catatan** — setara todo tapi tanpa waktu (teks umum, kumpulan link). Server: tabel `notes`
       (judul, isi ≤20.000, kategori, disematkan; judul kosong = baris pertama isi), `internal/core/notes.go`
       (validasi + undo), `GET/POST/PUT/DELETE /api/notes` (selalu per `user_id`). Asisten: `note.create / update
       (addContent) / pin / unpin / delete / list` (hapus selalu dikonfirmasi), catatan masuk DATA (isinya hanya bila
