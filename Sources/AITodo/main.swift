@@ -1283,7 +1283,7 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
     private let offlineBox = NSView()
     /// Isi tab Catatan (Notes.swift): kartu tambah, filter + cari, daftar, status sinkron.
     private lazy var notesPane: NotesPane = {
-        let p = NotesPane(app: app)
+        let p = NotesPane(app: self.app)
         p.onCardChanged = { [weak self] in self?.updateAddCard() }
         return p
     }()
