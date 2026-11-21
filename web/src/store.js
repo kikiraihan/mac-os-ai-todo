@@ -13,6 +13,7 @@ export const state = reactive({
   timezone: '',
   todos: [],
   reminders: [],
+  notes: [],
   rev: 0,
   loaded: false,
   online: true,
@@ -77,10 +78,11 @@ export async function adminLogout() {
 }
 
 export async function refreshData() {
-  const [t, r] = await Promise.all([get('/todos?status=all'), get('/reminders')])
+  const [t, r, n] = await Promise.all([get('/todos?status=all'), get('/reminders'), get('/notes')])
   state.todos = t.todos
   state.reminders = r.reminders
-  state.rev = Math.max(t.rev, r.rev)
+  state.notes = n.notes
+  state.rev = Math.max(t.rev, r.rev, n.rev)
   state.loaded = true
 }
 
@@ -129,6 +131,7 @@ export async function logout() {
   state.me = null
   state.todos = []
   state.reminders = []
+  state.notes = []
   state.loaded = false
 }
 

@@ -104,6 +104,21 @@ CREATE TABLE IF NOT EXISTS todos (
 );
 CREATE INDEX IF NOT EXISTS idx_todos_user ON todos(user_id, status, due_date);
 
+-- Catatan: setara todo tapi tanpa waktu/status — teks umum, kumpulan link, dsb.
+-- pinned = disematkan (tampil paling atas).
+CREATE TABLE IF NOT EXISTS notes (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	title TEXT NOT NULL,
+	content TEXT NOT NULL DEFAULT '',
+	list TEXT NOT NULL DEFAULT '',
+	pinned INTEGER NOT NULL DEFAULT 0,
+	source TEXT NOT NULL DEFAULT 'manual',
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_notes_user ON notes(user_id, pinned, updated_at);
+
 CREATE TABLE IF NOT EXISTS reminders (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,

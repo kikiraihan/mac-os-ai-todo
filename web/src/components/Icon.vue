@@ -33,6 +33,8 @@ const paths = {
   alert: 'M12 3l10 18H2zM12 10v5M12 18h.01',
   note: 'M5 6h14M5 10h14M5 14h10M5 18h7',
   copy: 'M9 9h11v11H9zM5 15H4V4h11v1',
+  doc: 'M6 3h9l4 4v14H6zM14 3v5h5M9 12h7M9 16h7',
+  pin: 'M9 4h6l-1 6 3 3H7l3-3zM12 13v8',
 }
 </script>
 

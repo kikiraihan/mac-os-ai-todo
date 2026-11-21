@@ -283,6 +283,20 @@ Rancangan: [`../docs/PRD.md`](../docs/PRD.md). Perbarui setiap tugas selesai.
       - **Web**: pemilih model compact di composer Chat & dropdown **Model bawaan** di Pengaturan → Asisten AI.
 - [ ] Uji manual di Mac sungguhan: pilih model di tab Chat popover, jadikan bawaan saya, cek sinkron di Pengaturan → Umum & Web
 
+- [x] 0.21.0: **Catatan** — setara todo tapi tanpa waktu (teks umum, kumpulan link). Server: tabel `notes`
+      (judul, isi ≤20.000, kategori, disematkan; judul kosong = baris pertama isi), `internal/core/notes.go`
+      (validasi + undo), `GET/POST/PUT/DELETE /api/notes` (selalu per `user_id`). Asisten: `note.create / update
+      (addContent) / pin / unpin / delete / list` (hapus selalu dikonfirmasi), catatan masuk DATA (isinya hanya bila
+      admin menyalakan "Kirim detail todo & isi catatan ke AI"), perintah tanpa AI `/catat <teks>`. Web: halaman
+      **Catatan** (`/catatan`, menu atas di HP): tambah cepat (link → isi, bisa diklik), chip Semua | Disematkan |
+      kategori (diingat), cari, geser kanan = sematkan / kiri = ubah·hapus, salin "Judul + isi". Mac: tab **Catatan**
+      di popover (`Notes.swift`; ⌘4): ＋ kartu cepat / Isian lengkap…, Semua | Disematkan + cari, 📌 sematkan, klik =
+      salin, klik dua kali = ubah, klik kanan → Lihat isi / Ubah / Salin / Sematkan / Hapus…; klik kanan ikon → Catatan
+- [ ] Uji manual di Mac sungguhan: header 4 tab (Chat | Todo | Pengingat | Catatan) + ＋ 🌐 ↻ ⚙ muat tanpa terpotong;
+      tab Catatan: tambah link, ubah, sematkan, hapus, ⌘4 / ⌃⇥, ⌘F, Esc
+- [ ] Belum: halaman kelola catatan di jendela Pengaturan Mac (seperti Pengaturan → Todo) — saat ini cukup popover & web
+
+## Berikutnya
 ## Berikutnya
 
 - [x] 0.11.0: pembaruan aplikasi Mac lewat server (`/api/app/mac/*`, token GitHub read-only di `.env`) — repo private tetap bisa update

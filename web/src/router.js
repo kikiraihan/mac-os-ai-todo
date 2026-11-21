@@ -5,6 +5,7 @@ import LoginView from './views/LoginView.vue'
 import ChatView from './views/ChatView.vue'
 import TodosView from './views/TodosView.vue'
 import RemindersView from './views/RemindersView.vue'
+import NotesView from './views/NotesView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -12,6 +13,7 @@ const router = createRouter({
     { path: '/masuk', name: 'login', component: LoginView, meta: { public: true, title: 'Masuk' } },
     { path: '/', name: 'chat', component: ChatView, meta: { title: 'Asisten' } },
     { path: '/todo', name: 'todos', component: TodosView, meta: { title: 'Todo' } },
+    { path: '/catatan', name: 'notes', component: NotesView, meta: { title: 'Catatan' } },
     { path: '/pengingat', name: 'reminders', component: RemindersView, meta: { title: 'Pengingat' } },
     { path: '/ingatan', name: 'memory', component: () => import('./views/MemoryView.vue'), meta: { title: 'Ingatan AI' } },
     { path: '/pengaturan', name: 'settings', component: () => import('./views/SettingsView.vue'), meta: { title: 'Pengaturan' } },

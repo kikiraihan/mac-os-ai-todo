@@ -3,7 +3,10 @@ import { toast } from './store'
 
 export const todoText = (x, titleOnly = false) => (titleOnly || !x.notes ? x.title : `${x.title}\n\n${x.notes}`)
 
-export async function copyTodo(x, titleOnly = false) {
+// Catatan: format yang sama ({ title, content } → "Judul" + baris kosong + isi).
+export const copyNote = (n, titleOnly = false) => copyTodo({ title: n.title, notes: n.content || '' }, titleOnly, 'isi')
+
+export async function copyTodo(x, titleOnly = false, what = 'detail') {
   const text = todoText(x, titleOnly)
   try {
     await navigator.clipboard.writeText(text)
@@ -19,5 +22,5 @@ export async function copyTodo(x, titleOnly = false) {
     ta.remove()
     if (!ok) return toast('Gagal menyalin', 'error')
   }
-  toast(titleOnly || !x.notes ? 'Judul disalin' : 'Judul & detail disalin')
+  toast(titleOnly || !x.notes ? 'Judul disalin' : `Judul & ${what} disalin`)
 }

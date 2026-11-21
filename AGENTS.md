@@ -64,11 +64,14 @@ Semua tampilan (aplikasi Mac & web) mengikuti gaya desain Apple (Human Interface
   (tombol) / `HotKey` (global) — jangan menulis `keyEquivalent` atau mencocokkan tombol secara langsung.
 - Salin todo = teks polos "Judul" + baris kosong + detail (`TodoCopy` di Mac, `web/src/copy.js`), selalu dengan
   umpan balik singkat ("Judul & detail disalin"). Di popover Mac: klik teks = salin, ikon ○ = selesai, klik dua kali = ubah.
-- Popover Mac: tab **Chat | Todo | Pengingat**; filter "Selesai" selalu paling ujung (✓ di sana = batalkan selesai).
+- Popover Mac: tab **Chat | Todo | Pengingat | Catatan**; filter "Selesai" selalu paling ujung (✓ di sana = batalkan selesai).
   Daftar todo dikelompokkan menurut Waktu (bawaan) atau Kategori — klik kanan filter / Pengaturan → Umum.
   Pengingat milik todo = ikon 🔔 di baris todo; tab Pengingat (Hari ini | Semua | Selesai) hanya pengingat tanpa
   todo, kecuali filter Semua = semua pengingat aktif per hari (termasuk milik todo); kelola lengkap di
   Pengaturan → Pengingat.
+- **Catatan** (web `/catatan`, popover Mac tab ke-4 `Notes.swift`): setara todo tanpa waktu/status — judul, isi (teks/link),
+  kategori, disematkan. Pola sama dengan todo (salin "Judul + isi", klik = salin, klik dua kali = ubah, geser di HP);
+  aksi asisten `note.*` lewat `internal/core/notes.go`. Bedakan dengan Ingatan AI (memory: fakta untuk asisten).
 - **HP (web ≤760px / layar sentuh)**: menu di atas (segmented control), judul besar, tombol utama =
   ikon bulat, area ketuk ≥40px, input ≥16px (Safari tidak zoom). Aksi baris lewat **gestur geser**
   (`components/SwipeRow.vue`: kanan = aksi utama, kiri = ubah/hapus, geser penuh = langsung) — tombol

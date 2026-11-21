@@ -259,6 +259,24 @@ if case .failure(.server(400, let msg)) = wait({ api.addMemory(target: "notes", 
     check(!msg.isEmpty, "ingatan berisi rahasia ditolak (\(msg))")
 } else { check(false, "ingatan berisi rahasia ditolak") }
 
+// catatan (tab Catatan): tambah (judul otomatis dari link), sematkan, cari, hapus
+if case .success(let created) = wait({ api.createNote(["content": "https://contoh.id/resep\n- cabai", "list": "Link"], $0) }) {
+    check(created.note.title == "https://contoh.id/resep" && !created.note.pinned, "tambah catatan (judul otomatis)")
+    if case .success(let upd) = wait({ api.updateNote(created.note.id, ["pinned": true, "title": "Resep sambal"], $0) }) {
+        check(upd.note.pinned && upd.note.title == "Resep sambal" && upd.note.content.contains("cabai"), "ubah & sematkan catatan")
+    } else { check(false, "ubah & sematkan catatan") }
+    guard case .success(let ns) = wait(api.notes) else { exit(1) }
+    check(ns.notes.first?.id == created.note.id, "GET /notes: yang disematkan paling atas")
+    check(ns.notes.first.map { TextSearch.matches($0, query: "SAMBAL link") } == true, "cari catatan (judul + kategori)")
+    if case .success = wait({ api.deleteNote(created.note.id, $0) }),
+       case .success(let after) = wait(api.notes) {
+        check(!after.notes.contains { $0.id == created.note.id }, "hapus catatan")
+    } else { check(false, "hapus catatan") }
+} else { check(false, "tambah catatan (judul otomatis)") }
+if case .failure(.server(400, _)) = wait({ api.createNote(["title": " "], $0) }) { check(true, "catatan kosong ditolak") }
+else { check(false, "catatan kosong ditolak") }
+check(defKeys[.tabNotes]?.display == "⌘4", "pintasan tab Catatan bawaan ⌘4")
+
 // pembaruan aplikasi lewat server: server tes tidak diatur (GITHUB_RELEASE_REPO kosong) → 501 berpesan
 if case .failure(.server(501, let msg)) = wait(api.macRelease) {
     check(msg.contains("GITHUB_RELEASE_REPO"), "pembaruan lewat server belum diatur → 501")

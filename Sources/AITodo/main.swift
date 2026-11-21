@@ -7,7 +7,8 @@
 //     ubah todo: tahan ⌥ lalu klik ✎, klik dua kali judul, atau klik kanan → Ubah…;
 //     urutkan todo / pengingat: tahan ⌃ lalu seret ≡, atau klik kanan → Urutkan — disimpan di Mac ini);
 //     ⌥⌘T buka / tutup popover
-//     (⇧⌥⌘T = popover di tab terakhir, ⌘1–3 / ⌃⇥ pindah tab; semua bisa diubah di Pengaturan → Pintasan)
+//     (⇧⌥⌘T = popover di tab terakhir, ⌘1–4 / ⌃⇥ pindah tab; semua bisa diubah di Pengaturan → Pintasan)
+//     dan tab Catatan (hal umum tanpa waktu: teks & link; sematkan, kategori, cari — Notes.swift)
 //   • Konfirmasi / undo aksi asisten; klik kanan ikon = menu singkat (Pengaturan, Keluar)
 //   • Jendela Pengaturan terpisah (tab Umum, Todo, Akun, Ingatan, Tentang — pola PasteLAN);
 //     tab Todo = kelola todo lengkap seperti halaman Todo di web
@@ -118,6 +119,12 @@ enum LocalPrefs {
         set { d.set(newValue, forKey: "reminderFilter") }
     }
 
+    /// Filter tab Catatan: 0 = Semua (bawaan), 1 = Disematkan.
+    static var notesScope: Int {
+        get { min(max(d.integer(forKey: "notesScope"), 0), 1) }
+        set { d.set(newValue, forKey: "notesScope") }
+    }
+
     /// Pengelompokan daftar di tab Todo: 0 = Waktu (bawaan: Terlambat, Hari ini, per tanggal, Tanpa tenggat),
     /// 1 = Kategori (per kategori todo, "Tanpa kategori" paling bawah).
     static var todoGroup: Int {
@@ -159,6 +166,8 @@ final class Store {
     var occurrences: [Occurrence] = []
     /// Semua pengingat (aktif & dijeda): yang terkait todo → ikon 🔔 di baris todo, sisanya → filter Pengingat.
     var reminders: [Reminder] = []
+    /// Catatan (tab Catatan): yang disematkan dulu, lalu yang terakhir diubah.
+    var notes: [Note] = []
     var rev: Int64 = 0
     var lastSync: Date?
     var lastError: String?
@@ -259,13 +268,14 @@ final class Store {
         todos = []
         occurrences = []
         reminders = []
+        notes = []
         rev = 0
         lastSync = nil
         lastError = nil
         onChange?()
     }
 
-    /// Ambil profil, todo terbuka, pengingat 48 jam ke depan, dan daftar pengingat.
+    /// Ambil profil, todo terbuka, pengingat 48 jam ke depan, daftar pengingat, dan catatan.
     func refresh(_ done: (() -> Void)? = nil) {
         if let done { refreshWaiters.append(done) }
         guard !refreshing else { return }
@@ -287,15 +297,24 @@ final class Store {
                                     switch r4 {
                                     case .failure(let e): return self.finish(error: e)
                                     case .success(let rs):
-                                        DispatchQueue.main.async {
-                                            self.me = me
-                                            self.todos = t.todos
-                                            self.occurrences = u.occurrences
-                                            self.reminders = rs.reminders
-                                            self.rev = max(t.rev, u.rev, rs.rev)
-                                            self.lastSync = Date()
-                                            self.lastError = nil
-                                            self.finish(error: nil)
+                                        // Catatan gagal dimuat (mis. server lama tanpa /api/notes) tidak
+                                        // menggagalkan sinkron todo & pengingat: daftar catatan lama dipertahankan.
+                                        self.api.notes { r5 in
+                                            DispatchQueue.main.async {
+                                                var rev = max(t.rev, u.rev, rs.rev)
+                                                if case .success(let ns) = r5 {
+                                                    self.notes = ns.notes
+                                                    rev = max(rev, ns.rev)
+                                                }
+                                                self.me = me
+                                                self.todos = t.todos
+                                                self.occurrences = u.occurrences
+                                                self.reminders = rs.reminders
+                                                self.rev = rev
+                                                self.lastSync = Date()
+                                                self.lastError = nil
+                                                self.finish(error: nil)
+                                            }
                                         }
                                     }
                                 }
@@ -1247,7 +1266,7 @@ enum UI {
 /// Mode ubah (satu todo, kartu menggantikan barisnya di daftar — lihat `TodoEditor`):
 ///   ⌥ + klik lingkaran · klik dua kali judul · klik kanan → Ubah…   ↩ simpan, esc batal
 final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
-    enum Mode: Int { case chat, todo, reminders }
+    enum Mode: Int { case chat, todo, reminders, notes }
     static let size = NSSize(width: 400, height: 600)
     static let inset: CGFloat = 16
     /// Lebar isi (tanpa margin kiri-kanan).
@@ -1257,11 +1276,17 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
     var store: Store { app.store }
     private(set) var mode: Mode = .chat
 
-    private let segment = NSSegmentedControl(labels: ["Chat", "Todo", "Pengingat"], trackingMode: .selectOne, target: nil, action: nil)
+    private let segment = NSSegmentedControl(labels: ["Chat", "Todo", "Pengingat", "Catatan"], trackingMode: .selectOne, target: nil, action: nil)
     private let chatBox = NSView()
     /// Isi tab Todo & Pengingat (kartu tambah, filter, daftar, status sinkron).
     private let manualBox = NSView()
     private let offlineBox = NSView()
+    /// Isi tab Catatan (Notes.swift): kartu tambah, filter + cari, daftar, status sinkron.
+    private lazy var notesPane: NotesPane = {
+        let p = NotesPane(app: app)
+        p.onCardChanged = { [weak self] in self?.updateAddCard() }
+        return p
+    }()
     private let offlineTitle = UI.label("", size: 15, weight: .semibold)
     private let offlineNote: NSTextField = {
         let l = NSTextField(wrappingLabelWithString: "")
@@ -1423,7 +1448,10 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         segment.target = self
         segment.action = #selector(segmentChanged)
         segment.selectedSegment = 0
-        for i in 0..<3 { segment.setWidth(80, forSegment: i) } // 80 (dulu 88): header muat ↻ di samping ⚙
+        // Empat tab (Catatan ditambahkan): lebar menurut label + huruf 12 pt supaya header tetap muat ＋ 🌐 ↻ ⚙
+        // (dulu 3 × 80, sebelumnya 3 × 88)
+        segment.font = .systemFont(ofSize: 12)
+        for (i, w) in [50, 50, 72, 64].enumerated() { segment.setWidth(CGFloat(w), forSegment: i) }
         segment.translatesAutoresizingMaskIntoConstraints = false
         let web = UI.iconButton("globe", tip: "Buka AI Todo di browser", self, #selector(openWeb))
         let gear = UI.iconButton("gearshape", tip: "Pengaturan (⌘,)", self, #selector(openSettings))
@@ -1433,7 +1461,7 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         line.boxType = .separator
         line.translatesAutoresizingMaskIntoConstraints = false
 
-        for v in [header, line, chatBox, manualBox, offlineBox] {
+        for v in [header, line, chatBox, manualBox, notesPane, offlineBox] {
             v.translatesAutoresizingMaskIntoConstraints = false
             root.addSubview(v)
         }
@@ -1446,7 +1474,7 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
             line.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             line.trailingAnchor.constraint(equalTo: root.trailingAnchor),
         ])
-        for box in [chatBox, manualBox, offlineBox] {
+        for box in [chatBox, manualBox, notesPane, offlineBox] {
             NSLayoutConstraint.activate([
                 box.topAnchor.constraint(equalTo: line.bottomAnchor),
                 box.leadingAnchor.constraint(equalTo: root.leadingAnchor),
@@ -2018,15 +2046,18 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
 
     /// Kartu tambah hanya di tab Todo / Pengingat (bukan Selesai) dan setelah ＋ ditekan; selain itu filter naik ke atas.
     private func updateAddCard() {
-        let canAdd = mode != .chat && !showDone
-        let noun = mode == .reminders ? "Pengingat" : "Todo"
+        // Tab Catatan: kartu tambahnya milik NotesPane (tidak ada filter Selesai)
+        let notes = mode == .notes
+        let canAdd = notes || (mode != .chat && !showDone)
+        let noun = notes ? "Catatan" : mode == .reminders ? "Pengingat" : "Todo"
+        let addCardOpen = notes ? notesPane.addCardOpen : self.addCardOpen
         newTodoButton.isHidden = !canAdd
         newTodoButton.contentTintColor = addCardOpen ? Theme.accent : .secondaryLabelColor
         let key = LocalPrefs.keys[.newItem].map { " (\($0.display))" } ?? ""
         newTodoButton.toolTip = addCardOpen ? "Tutup form \(noun.lowercased()) baru (Esc)"
                                             : "\(noun) baru\(key) · ⌥-klik: isian lengkap"
         newTodoButton.setAccessibilityLabel(addCardOpen ? "Tutup form \(noun.lowercased()) baru" : "\(noun) baru")
-        let card = canAdd && addCardOpen
+        let card = canAdd && addCardOpen && !notes
         addHost.isHidden = !card
         scopeBelowCard.isActive = card
         scopeAtTop.isActive = !card
@@ -2133,6 +2164,7 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
 
     /// ＋ / ⌘N: buka kartu tambah lalu fokus ke judul; tekan lagi = tutup. ⌥-klik ＋ = langsung isian lengkap.
     @objc private func toggleAddCard() {
+        if mode == .notes { return notesPane.toggleAddCard() }
         guard mode != .chat, !showDone else { return }
         if NSEvent.modifierFlags.contains(.option) && advancedForm == nil {
             if !addCardOpen { setAddCard(open: true) }
@@ -2158,11 +2190,13 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         guard store.connected, resyncButton.isEnabled else { return }
         resyncButton.isEnabled = false
         syncLabel.stringValue = "Menyinkronkan…"
+        if mode == .notes { notesPane.flashStatus("Menyinkronkan…") }
         if mode == .chat { loadHistory() }
         app.resync { [weak self] in
             guard let self else { return }
             self.resyncButton.isEnabled = true
-            if let e = self.store.lastError { self.flashStatus("Gagal sinkron: \(e)") } else { self.flashStatus("Data sudah terbaru") }
+            let flash: (String) -> Void = self.mode == .notes ? self.notesPane.flashStatus : self.flashStatus
+            if let e = self.store.lastError { flash("Gagal sinkron: \(e)") } else { flash("Data sudah terbaru") }
         }
     }
 
@@ -3227,7 +3261,8 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         let online = store.connected
         offlineBox.isHidden = online
         chatBox.isHidden = !online || mode != .chat
-        manualBox.isHidden = !online || mode == .chat
+        manualBox.isHidden = !online || mode == .chat || mode == .notes
+        notesPane.isHidden = !online || mode != .notes
         segment.isEnabled = online
         if store.needsLogin {
             offlineTitle.stringValue = "Sesi berakhir"
@@ -3241,7 +3276,10 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
             // Hemat sumber daya: popover tertutup → daftar tidak digambar ulang di latar (bisa ratusan baris
             // setiap sinkron); cukup ditandai, lalu dibangun sekali tepat sebelum popover tampil (`willShow`).
             // Sedang menyeret baris (mode urutkan) → juga ditunda sampai mouse dilepas.
-            if view.window?.isVisible == true && !reordering { refreshList() } else { listStale = true }
+            let visible = view.window?.isVisible == true
+            // Tab Catatan: daftar todo/pengingat tersembunyi → cukup ditandai, dibangun saat tabnya dibuka lagi
+            if visible && !reordering && mode != .notes { refreshList() } else { listStale = true }
+            notesPane.storeChanged(visible: visible && mode == .notes)
         }
         updateControls()
     }
@@ -3263,12 +3301,16 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
     /// Tepat sebelum popover tampil: lengkapi perubahan yang ditunda selama popover tertutup.
     func willShow() {
         _ = view
-        if listStale && store.connected { refreshList() }
+        if listStale && store.connected && mode != .notes { refreshList() }
+        if mode == .notes { notesPane.willShow() }
     }
 
     func select(_ m: Mode) {
         _ = view
-        if m != mode { editor = nil; addCardOpen = false; closeAdvanced(focus: false); searchField.stringValue = "" }
+        if m != mode {
+            editor = nil; addCardOpen = false; closeAdvanced(focus: false); searchField.stringValue = ""
+            if mode == .notes { notesPane.leave() }
+        }
         mode = m
         segment.selectedSegment = m.rawValue
         configureScope()
@@ -3290,6 +3332,8 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         if mode == .chat {
             view.window?.makeFirstResponder(input)
             loadHistory()
+        } else if mode == .notes {
+            notesPane.didShow()
         } else if let editor {
             view.window?.makeFirstResponder(editor.titleField)
         } else if mode != .chat && !showDone && addCardOpen {
@@ -3307,16 +3351,21 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
     /// Pintasan popover (cari & pindah tab). false = tidak berlaku di keadaan ini → event diteruskan seperti biasa.
     /// ＋ dan ↻ lewat keyEquivalent tombolnya (`KeyBindings`).
     private func perform(_ a: ShortcutAction) -> Bool {
-        let tabs = 3
+        let tabs = 4
         let target: Mode
         switch a {
         case .search:
+            if mode == .notes && !notesPane.isHidden {
+                notesPane.focusSearch()
+                return true
+            }
             guard mode != .chat, !manualBox.isHidden else { return false }
             focusSearch()
             return true
         case .tabChat: target = .chat
         case .tabTodo: target = .todo
         case .tabReminders: target = .reminders
+        case .tabNotes: target = .notes
         case .nextTab: target = Mode(rawValue: (mode.rawValue + 1) % tabs) ?? .chat
         case .previousTab: target = Mode(rawValue: (mode.rawValue + tabs - 1) % tabs) ?? .chat
         default: return false
@@ -3361,7 +3410,7 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         }
     }
 
-    @objc private func openWeb() { app.openWebPage(["/", "/todo", "/pengingat"][mode.rawValue]) }
+    @objc private func openWeb() { app.openWebPage(["/", "/todo", "/pengingat", "/catatan"][mode.rawValue]) }
     @objc private func openSettings() { app.openSettings() }
 }
 
@@ -5962,6 +6011,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         contextMenu.addItem(item("Tambah todo manual", #selector(openManual)))
         contextMenu.addItem(item("Kelola semua todo…", #selector(openTodos)))
         contextMenu.addItem(item("Kelola pengingat…", #selector(openReminderSettings)))
+        contextMenu.addItem(item("Catatan", #selector(openNotes)))
         let clear = item("Hapus riwayat chat…", #selector(clearChatHistory))
         clear.isEnabled = store.connected
         contextMenu.addItem(clear)
@@ -6012,6 +6062,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     @objc func resyncNow() { resync() }
     @objc func openManual() { showPopover(.todo) }
+    @objc func openNotes() { showPopover(.notes) }
 
     /// Menu klik kanan: buka popover tab Chat, lalu konfirmasi yang sama dengan tombol tempat sampah.
     @objc func clearChatHistory() {

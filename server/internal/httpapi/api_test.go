@@ -382,3 +382,51 @@ func TestAdminLogs(t *testing.T) {
 		t.Fatalf("hapus semua: %d %v", code, out)
 	}
 }
+
+func TestNotesAPI(t *testing.T) {
+	s, h := newTestServer(t)
+	mkUser(t, s, "budi")
+	mkUser(t, s, "siti")
+	budi, siti := login(t, h, "budi"), login(t, h, "siti")
+	code, out := budi.do("POST", "/api/notes", map[string]any{"content": "https://contoh.id/a\nlink bagus", "list": "Link"}, true)
+	if code != 200 {
+		t.Fatalf("create: %d %v", code, out)
+	}
+	n := out["note"].(map[string]any)
+	if n["title"] != "https://contoh.id/a" || n["pinned"] != false {
+		t.Fatalf("note %v", n)
+	}
+	path := "/api/notes/" + itoa(int64(n["id"].(float64)))
+	if code, _ := budi.do("POST", "/api/notes", map[string]any{"title": "  "}, true); code != 400 {
+		t.Fatalf("empty note: %d", code)
+	}
+	if code, out := budi.do("PUT", path, map[string]any{"pinned": true, "title": "Link bagus"}, true); code != 200 ||
+		out["note"].(map[string]any)["pinned"] != true {
+		t.Fatalf("pin: %d %v", code, out)
+	}
+	budi.do("POST", "/api/notes", map[string]any{"title": "Belanja bulanan"}, true)
+	_, list := budi.do("GET", "/api/notes", nil, true)
+	notes := list["notes"].([]any)
+	if len(notes) != 2 || notes[0].(map[string]any)["title"] != "Link bagus" {
+		t.Fatalf("list (disematkan dulu): %v", notes)
+	}
+	if _, q := budi.do("GET", "/api/notes?q=contoh.id", nil, true); len(q["notes"].([]any)) != 1 {
+		t.Fatalf("search: %v", q)
+	}
+	// Pengguna lain tidak bisa melihat / mengubah / menghapus.
+	if _, l := siti.do("GET", "/api/notes", nil, true); len(l["notes"].([]any)) != 0 {
+		t.Fatal("siti sees budi's notes")
+	}
+	if code, _ := siti.do("PUT", path, map[string]any{"title": "dibajak"}, true); code != 404 {
+		t.Fatalf("other user edit: %d", code)
+	}
+	if code, _ := siti.do("DELETE", path, nil, true); code != 404 {
+		t.Fatalf("other user delete: %d", code)
+	}
+	if code, _ := budi.do("DELETE", path, nil, true); code != 200 {
+		t.Fatalf("delete: %d", code)
+	}
+	if code, _ := budi.do("GET", "/api/notes", nil, false); code != 403 {
+		t.Fatalf("no csrf header: %d", code)
+	}
+}
