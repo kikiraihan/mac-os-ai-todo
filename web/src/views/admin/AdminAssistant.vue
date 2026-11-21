@@ -51,7 +51,7 @@ async function save() {
       </section>
       <section class="card">
         <h3>Privasi & batas</h3>
-        <label class="check"><input v-model="s.sendNotes" type="checkbox" /> Kirim catatan todo ke AI</label>
+        <label class="check"><input v-model="s.sendNotes" type="checkbox" /> Kirim detail todo &amp; isi catatan ke AI</label>
         <p class="hint">Mati = hanya judul, tanggal, daftar, dan prioritas yang dikirim. Model gratis bisa mencatat prompt untuk pelatihan, pilih dengan sadar.</p>
         <div class="row">
           <label class="field grow"><span>Maks token jawaban</span><input v-model.number="s.maxTokens" type="number" min="300" max="8000" /></label>

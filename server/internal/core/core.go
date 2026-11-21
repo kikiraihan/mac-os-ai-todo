@@ -65,7 +65,7 @@ func (c *Ctx) Today() string { return c.now().Format("2006-01-02") }
 // Change adalah satu baris yang berubah. Before kosong = baris baru (undo
 // menghapusnya); After kosong = baris dihapus (undo memulihkannya).
 type Change struct {
-	Kind   string          `json:"kind"` // todo | reminder | memory
+	Kind   string          `json:"kind"` // todo | reminder | note | memory
 	ID     int64           `json:"id"`
 	Before json.RawMessage `json:"before,omitempty"`
 	After  json.RawMessage `json:"after,omitempty"`
@@ -133,6 +133,24 @@ func Undo(q db.Q, userID int64, changes []Change) error {
 				return errors.New("data undo rusak")
 			}
 			if err := db.RestoreReminder(q, snap); err != nil {
+				return err
+			}
+		case "note":
+			cur, err := db.GetNote(q, userID, ch.ID)
+			if err := checkCurrent(err, ch.After, func(s db.NoteSnapshot) string { return s.UpdatedAt }, cur.UpdatedAt); err != nil {
+				return err
+			}
+			if ch.Before == nil {
+				if err := db.DeleteNote(q, userID, ch.ID); err != nil {
+					return err
+				}
+				continue
+			}
+			var snap db.NoteSnapshot
+			if err := json.Unmarshal(ch.Before, &snap); err != nil || snap.UserID != userID {
+				return errors.New("data undo rusak")
+			}
+			if err := db.RestoreNote(q, snap); err != nil {
 				return err
 			}
 		case "memory":

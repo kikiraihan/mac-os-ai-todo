@@ -121,6 +121,58 @@ func (s *Server) archiveDone(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// --- catatan ----------------------------------------------------------------------
+
+func (s *Server) listNotes(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	f := db.NoteFilter{List: q.Get("list"), Query: q.Get("q"), Pinned: q.Get("pinned") == "1"}
+	notes, err := db.ListNotes(s.DB, userOf(r).ID, f)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"notes": notes, "rev": s.Hub.Rev(userOf(r).ID)})
+}
+
+func (s *Server) createNote(w http.ResponseWriter, r *http.Request) {
+	var in core.NoteInput
+	if !decode(w, r, &in) {
+		return
+	}
+	s.mutate(w, r, func(c *core.Ctx) (any, error) {
+		n, err := core.CreateNote(c, in)
+		return map[string]any{"note": n}, err
+	})
+}
+
+func (s *Server) updateNote(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r)
+	if !ok {
+		writeErr(w, http.StatusBadRequest, "id tidak valid")
+		return
+	}
+	var in core.NoteInput
+	if !decode(w, r, &in) {
+		return
+	}
+	s.mutate(w, r, func(c *core.Ctx) (any, error) {
+		n, err := core.UpdateNote(c, id, in)
+		return map[string]any{"note": n}, err
+	})
+}
+
+func (s *Server) deleteNote(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r)
+	if !ok {
+		writeErr(w, http.StatusBadRequest, "id tidak valid")
+		return
+	}
+	s.mutate(w, r, func(c *core.Ctx) (any, error) {
+		n, err := core.DeleteNote(c, id)
+		return map[string]any{"note": n}, err
+	})
+}
+
 // --- pengingat -------------------------------------------------------------------
 
 func (s *Server) listReminders(w http.ResponseWriter, r *http.Request) {

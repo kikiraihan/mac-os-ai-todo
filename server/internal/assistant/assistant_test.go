@@ -285,3 +285,97 @@ func TestTodoDetailAppend(t *testing.T) {
 		t.Fatalf("undo notes %q", got.Notes)
 	}
 }
+
+func TestNotesViaChat(t *testing.T) {
+	f := &fakeAI{replies: []string{
+		`{"reply":"Disimpan","actions":[{"op":"note.create","title":"Resep sambal","detail":"- cabai\n- https://contoh.id/sambal","list":"Resep"}]}`,
+		"", // diisi setelah id catatan diketahui
+		"",
+	}}
+	a, u := setup(t, f)
+	if _, err := a.Handle(context.Background(), u, jkt, "simpan resep sambal: cabai, https://contoh.id/sambal"); err != nil {
+		t.Fatal(err)
+	}
+	notes, _ := db.ListNotes(a.DB, u.ID, db.NoteFilter{})
+	if len(notes) != 1 || notes[0].Title != "Resep sambal" || notes[0].Content != "- cabai\n- https://contoh.id/sambal" ||
+		notes[0].List != "Resep" || notes[0].Source != "chat" {
+		t.Fatalf("notes %+v", notes)
+	}
+	id := strconv.FormatInt(notes[0].ID, 10)
+
+	// Tambah isi (tidak menimpa) + sematkan, lalu undo.
+	f.replies[0] = `{"reply":"Sip","actions":[{"op":"note.update","noteId":` + id + `,"addContent":"- terasi"},{"op":"note.pin","noteId":"` + id + `"}]}`
+	rep, err := a.Handle(context.Background(), u, jkt, "tambah terasi ke resep sambal & sematkan")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := db.GetNote(a.DB, u.ID, notes[0].ID)
+	if got.Content != "- cabai\n- https://contoh.id/sambal\n- terasi" || !got.Pinned {
+		t.Fatalf("note %+v", got)
+	}
+	if rep.Batch == nil || len(rep.Batch.Items) != 2 || !strings.HasPrefix(rep.Batch.Items[0].Summary, "Isi ditambahkan") {
+		t.Fatalf("batch %+v", rep.Batch)
+	}
+	// Bawaan: isi catatan tidak dikirim ke AI, hanya hasContent.
+	sys := f.requests[1]["messages"].([]any)[0].(map[string]any)["content"].(string)
+	if !strings.Contains(sys, `"catatan":[{"id":`+id) || !strings.Contains(sys, `"hasContent":true`) || strings.Contains(sys, "contoh.id/sambal") {
+		t.Fatalf("konteks catatan salah: %s", sys[strings.Index(sys, "DATA (JSON)"):])
+	}
+	if _, err := a.Undo(u, rep.Batch.ID); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = db.GetNote(a.DB, u.ID, notes[0].ID)
+	if got.Content != "- cabai\n- https://contoh.id/sambal" || got.Pinned {
+		t.Fatalf("undo note %+v", got)
+	}
+
+	// Hapus selalu menunggu konfirmasi.
+	f.replies[0] = `{"reply":"Kuhapus","actions":[{"op":"note.delete","noteId":` + id + `}]}`
+	rep, err = a.Handle(context.Background(), u, jkt, "hapus catatan resep sambal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Batch == nil || rep.Batch.Status != db.BatchPending {
+		t.Fatalf("delete not pending: %+v", rep.Batch)
+	}
+	if _, err := db.GetNote(a.DB, u.ID, notes[0].ID); err != nil {
+		t.Fatal("note deleted before confirm")
+	}
+	if _, err := a.Confirm(u, jkt, rep.Batch.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.GetNote(a.DB, u.ID, notes[0].ID); err == nil {
+		t.Fatal("note still exists after confirm")
+	}
+}
+
+func TestNoteShortcutAndAutoTitle(t *testing.T) {
+	a, u := setup(t, &fakeAI{})
+	if _, err := a.Handle(context.Background(), u, jkt, "/catat https://contoh.id/artikel menarik"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Handle(context.Background(), u, jkt, "/catat Ide kado\nbuku & kopi"); err != nil {
+		t.Fatal(err)
+	}
+	notes, _ := db.ListNotes(a.DB, u.ID, db.NoteFilter{})
+	if len(notes) != 2 {
+		t.Fatalf("notes %+v", notes)
+	}
+	byTitle := map[string]db.Note{}
+	for _, n := range notes {
+		byTitle[n.Title] = n
+	}
+	if n, ok := byTitle["https://contoh.id/artikel menarik"]; !ok || n.Content != "https://contoh.id/artikel menarik" {
+		t.Fatalf("link note %+v", notes)
+	}
+	if n, ok := byTitle["Ide kado"]; !ok || n.Content != "buku & kopi" {
+		t.Fatalf("text note %+v", notes)
+	}
+	// Catatan kosong ditolak oleh core (validasi sama dengan form manual).
+	if _, err := toOps([]map[string]any{{"op": "note.create", "list": "x"}}); err == nil {
+		t.Fatal("note.create tanpa isi diterima")
+	}
+	if got := core.AutoNoteTitle("\n  - " + strings.Repeat("a", 100)); len([]rune(got)) != 80 || !strings.HasSuffix(got, "…") {
+		t.Fatalf("auto title %q", got)
+	}
+}

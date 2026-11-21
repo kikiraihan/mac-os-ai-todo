@@ -27,12 +27,15 @@ type Op struct {
 	TodoID     int64              `json:"todoId,omitempty"`
 	ReminderID int64              `json:"reminderId,omitempty"`
 	MemoryID   int64              `json:"memoryId,omitempty"`
+	NoteID     int64              `json:"noteId,omitempty"`
 	Target     string             `json:"target,omitempty"` // memory: profile | notes
 	Content    *string            `json:"content,omitempty"`
 	TodoRef    int                `json:"todoRef,omitempty"` // 1-based indeks aksi todo.create di pesan yang sama
 	Title      *string            `json:"title,omitempty"`
 	Notes      *string            `json:"notes,omitempty"`
-	AddNotes   *string            `json:"addNotes,omitempty"` // todo.update: tambah ke detail, tidak menimpa
+	AddNotes   *string            `json:"addNotes,omitempty"`   // todo.update: tambah ke detail, tidak menimpa
+	AddContent *string            `json:"addContent,omitempty"` // note.update: tambah ke isi catatan, tidak menimpa
+	Pinned     *bool              `json:"pinned,omitempty"`     // note.create / note.update: sematkan
 	List       *string            `json:"list,omitempty"`
 	Priority   *string            `json:"priority,omitempty"`
 	DueDate    *string            `json:"dueDate,omitempty"`
@@ -53,20 +56,23 @@ var allowedOps = map[string]bool{
 	"todo.archiveDone": true,
 	"reminder.create":  true, "reminder.update": true, "reminder.pause": true, "reminder.resume": true,
 	"reminder.snooze": true, "reminder.delete": true,
+	"note.list": true, "note.create": true, "note.update": true, "note.pin": true, "note.unpin": true, "note.delete": true,
 	"memory.add": true, "memory.update": true, "memory.remove": true,
 	"chat.search": true,
 }
 
-var dangerousOps = map[string]bool{"todo.delete": true, "reminder.delete": true, "todo.archiveDone": true, "memory.remove": true}
+var dangerousOps = map[string]bool{"todo.delete": true, "reminder.delete": true, "todo.archiveDone": true, "memory.remove": true,
+	"note.delete": true}
 
 func (o Op) isList() bool {
-	return o.Op == "todo.list" || o.Op == "reminder.list" || o.Op == "chat.search"
+	return o.Op == "todo.list" || o.Op == "reminder.list" || o.Op == "note.list" || o.Op == "chat.search"
 }
 
 // editsExisting: aksi yang mengubah data yang sudah ada.
 func (o Op) editsExisting() bool {
 	switch o.Op {
-	case "todo.update", "todo.complete", "todo.reopen", "reminder.update", "reminder.pause", "reminder.resume", "reminder.snooze":
+	case "todo.update", "todo.complete", "todo.reopen", "reminder.update", "reminder.pause", "reminder.resume", "reminder.snooze",
+		"note.update", "note.pin", "note.unpin":
 		return true
 	}
 	return false
@@ -124,6 +130,32 @@ func (m rawMap) text(keys ...string) string {
 	return ""
 }
 
+// flag membaca boolean longgar (true/false, "ya"/"tidak", 1/0).
+func (m rawMap) flag(keys ...string) *bool {
+	v, ok := m.first(keys...)
+	if !ok {
+		return nil
+	}
+	var b bool
+	switch x := v.(type) {
+	case bool:
+		b = x
+	case float64:
+		b = x != 0
+	case string:
+		switch strings.ToLower(strings.TrimSpace(x)) {
+		case "true", "1", "ya", "yes":
+			b = true
+		case "false", "0", "tidak", "no":
+		default:
+			return nil
+		}
+	default:
+		return nil
+	}
+	return &b
+}
+
 func (m rawMap) num(keys ...string) (int64, bool) {
 	v, ok := m.first(keys...)
 	if !ok {
@@ -162,7 +194,7 @@ func toOps(raw []map[string]any) ([]Op, error) {
 	}
 	ops := make([]Op, 0, len(raw))
 	createIdx := map[int]int{} // indeks aksi → nomor urut todo.create (1-based)
-	creates := 0
+	creates, noteCreates := 0, 0
 	for i, r := range raw {
 		m := rawMap(r)
 		op := Op{Op: m.text("op", "action", "type")}
@@ -189,6 +221,19 @@ func toOps(raw []map[string]any) ([]Op, error) {
 		op.Query = m.text("query", "q")
 
 		op.Content = m.str("content", "text")
+		if strings.HasPrefix(op.Op, "note.") {
+			op.AddContent = m.str("addContent", "appendContent", "add_content")
+			if op.AddContent == nil {
+				op.AddContent, op.AddNotes = op.AddNotes, nil // "tambah detail" = tambah isi catatan
+			}
+			if op.Content == nil {
+				op.Content, op.Notes = op.Notes, nil // "notes"/"detail" = isi catatan
+			}
+			if op.Op == "note.create" && op.Content == nil && op.AddContent != nil {
+				op.Content, op.AddContent = op.AddContent, nil
+			}
+			op.Pinned = m.flag("pinned", "pin")
+		}
 		op.Target = strings.ToLower(m.text("target"))
 		switch op.Target {
 		case "user", "profil", "profile":
@@ -196,7 +241,11 @@ func toOps(raw []map[string]any) ([]Op, error) {
 		case "memory", "catatan", "notes", "note":
 			op.Target = db.MemoryNotes
 		}
-		if strings.HasPrefix(op.Op, "memory.") {
+		if strings.HasPrefix(op.Op, "note.") {
+			if n, ok := m.num("noteId", "note_id", "id"); ok {
+				op.NoteID = n
+			}
+		} else if strings.HasPrefix(op.Op, "memory.") {
 			if n, ok := m.num("memoryId", "memory_id", "id"); ok {
 				op.MemoryID = n
 			}
@@ -240,6 +289,15 @@ func toOps(raw []map[string]any) ([]Op, error) {
 			if op.TodoID <= 0 {
 				return nil, fmt.Errorf("aksi ke-%d: %s butuh todoId dari data", i, op.Op)
 			}
+		case "note.create":
+			noteCreates++
+			if deref(op.Title) == "" && deref(op.Content) == "" {
+				return nil, fmt.Errorf("aksi ke-%d: note.create butuh title atau content", i)
+			}
+		case "note.update", "note.pin", "note.unpin", "note.delete":
+			if op.NoteID <= 0 {
+				return nil, fmt.Errorf("aksi ke-%d: %s butuh noteId dari data", i, op.Op)
+			}
 		case "reminder.create":
 			if op.Schedule == nil {
 				return nil, fmt.Errorf("aksi ke-%d: reminder.create butuh schedule", i)
@@ -270,6 +328,9 @@ func toOps(raw []map[string]any) ([]Op, error) {
 	if creates > maxCreates {
 		return nil, fmt.Errorf("maksimal %d todo baru per pesan", maxCreates)
 	}
+	if noteCreates > maxCreates {
+		return nil, fmt.Errorf("maksimal %d catatan baru per pesan", maxCreates)
+	}
 	return ops, nil
 }
 
@@ -284,6 +345,10 @@ type Item struct {
 func todoInput(o Op) core.TodoInput {
 	return core.TodoInput{Title: o.Title, Notes: o.Notes, AppendNotes: o.AddNotes, List: o.List, Priority: o.Priority,
 		DueDate: o.DueDate, DueTime: o.DueTime}
+}
+
+func noteInput(o Op) core.NoteInput {
+	return core.NoteInput{Title: o.Title, Content: o.Content, AppendContent: o.AddContent, List: o.List, Pinned: o.Pinned}
 }
 
 // execute menjalankan aksi non-list secara berurutan di c.Q (sebuah transaksi).
@@ -388,6 +453,37 @@ func execute(c *core.Ctx, ops []Op) ([]Item, error) {
 				return nil, notFound(err, "pengingat", o.ReminderID)
 			}
 			summary = "Pengingat dihapus: " + r.Title
+		case "note.create":
+			n, err := core.CreateNote(c, noteInput(o))
+			if err != nil {
+				return nil, err
+			}
+			summary = "Catatan ditambahkan: " + n.Title
+		case "note.update":
+			n, err := core.UpdateNote(c, o.NoteID, noteInput(o))
+			if err != nil {
+				return nil, notFound(err, "catatan", o.NoteID)
+			}
+			summary = "Catatan diubah: " + n.Title
+			if o.AddContent != nil && o.Title == nil && o.Content == nil && o.List == nil && o.Pinned == nil {
+				summary = "Isi ditambahkan ke catatan: " + n.Title
+			}
+		case "note.pin", "note.unpin":
+			n, err := core.SetNotePinned(c, o.NoteID, o.Op == "note.pin")
+			if err != nil {
+				return nil, notFound(err, "catatan", o.NoteID)
+			}
+			if o.Op == "note.pin" {
+				summary = "Catatan disematkan: " + n.Title
+			} else {
+				summary = "Sematan dilepas: " + n.Title
+			}
+		case "note.delete":
+			n, err := core.DeleteNote(c, o.NoteID)
+			if err != nil {
+				return nil, notFound(err, "catatan", o.NoteID)
+			}
+			summary = "Catatan dihapus: " + n.Title
 		case "memory.add":
 			m, err := core.AddMemory(c, o.Target, deref(o.Content))
 			if err != nil {
@@ -484,6 +580,22 @@ func preview(c *core.Ctx, ops []Op) ([]Item, error) {
 		case "reminder.delete":
 			title, err = remTitle()
 			s = "Hapus pengingat: " + title
+		case "note.create":
+			t := deref(o.Title)
+			if t == "" {
+				t = core.AutoNoteTitle(deref(o.Content))
+			}
+			s = "Tambah catatan: " + t
+		case "note.update", "note.pin", "note.unpin", "note.delete":
+			n, e := db.GetNote(c.Q, c.UserID, o.NoteID)
+			if e != nil {
+				err = notFound(e, "catatan", o.NoteID)
+			}
+			s = map[string]string{"note.update": "Ubah catatan: ", "note.pin": "Sematkan catatan: ",
+				"note.unpin": "Lepas sematan: ", "note.delete": "Hapus catatan: "}[o.Op] + n.Title
+			if o.Op == "note.update" && o.AddContent != nil {
+				s += " (tambah isi)"
+			}
 		case "memory.add":
 			s = "Ingat: " + deref(o.Content)
 		case "memory.update", "memory.remove":

@@ -46,6 +46,17 @@ struct Todo: Codable, Equatable {
     var completedAt: String? = nil
 }
 
+/// Catatan (GET /api/notes): hal umum tanpa waktu — teks, kumpulan link. pinned = disematkan (paling atas).
+struct Note: Codable, Equatable {
+    let id: Int64
+    var title: String
+    var content: String
+    var list: String
+    var pinned: Bool
+    var source: String? = nil
+    var updatedAt: String? = nil
+}
+
 struct Occurrence: Codable, Equatable {
     let reminderId: Int64
     let todoId: Int64?
@@ -364,6 +375,28 @@ final class APIClient {
         send("POST", "/todos/archive-done", as: Archived.self, completion: c)
     }
 
+    // MARK: Catatan (sama dengan web → Catatan)
+
+    struct Notes: Decodable { let notes: [Note]; let rev: Int64 }
+    func notes(_ c: @escaping (Result<Notes, APIError>) -> Void) {
+        send("GET", "/notes", as: Notes.self, completion: c)
+    }
+
+    struct NoteResult: Decodable { let note: Note }
+    /// body: title, content, list (String), pinned (Bool). Judul kosong = baris pertama isi (di server).
+    func createNote(_ body: [String: Any], _ c: @escaping (Result<NoteResult, APIError>) -> Void) {
+        send("POST", "/notes", body: body, as: NoteResult.self, completion: c)
+    }
+
+    /// Ubah sebagian kolom catatan (yang tidak dikirim tidak berubah).
+    func updateNote(_ id: Int64, _ body: [String: Any], _ c: @escaping (Result<NoteResult, APIError>) -> Void) {
+        send("PUT", "/notes/\(id)", body: body, as: NoteResult.self, completion: c)
+    }
+
+    func deleteNote(_ id: Int64, _ c: @escaping (Result<NoteResult, APIError>) -> Void) {
+        send("DELETE", "/notes/\(id)", as: NoteResult.self, completion: c)
+    }
+
     struct Ok: Decodable {}
     func snooze(reminder id: Int64, minutes: Int, _ c: @escaping (Result<Ok, APIError>) -> Void) {
         send("POST", "/reminders/\(id)/snooze", body: ["minutes": minutes], as: Ok.self, completion: c)
@@ -585,6 +618,9 @@ enum TextSearch {
     /// Todo: judul, detail, kategori.
     static func matches(_ t: Todo, query: String) -> Bool { matches([t.title, t.notes, t.list], query: query) }
 
+    /// Catatan: judul, isi, kategori.
+    static func matches(_ n: Note, query: String) -> Bool { matches([n.title, n.content, n.list], query: query) }
+
     /// Pengingat: judul, pesan, jadwal, dan judul todo terkait (bila ada).
     static func matches(_ r: Reminder, todoTitle: String? = nil, query: String) -> Bool {
         matches([r.title, r.message, r.scheduleText, todoTitle ?? ""], query: query)
@@ -651,7 +687,7 @@ struct KeyCombo: Equatable {
 /// Semua pintasan aplikasi Mac yang bisa diatur. Bawaan = pintasan yang sudah ada sebelumnya
 /// (⌥⌘T, ⌘N, ⌘F, ⌘R) + pintasan baru (buka popover di tab terakhir, pindah tab).
 enum ShortcutAction: String, CaseIterable {
-    case toggleChat, togglePopover, tabChat, tabTodo, tabReminders, nextTab, previousTab, newItem, search, resync
+    case toggleChat, togglePopover, tabChat, tabTodo, tabReminders, tabNotes, nextTab, previousTab, newItem, search, resync
 
     var title: String {
         switch self {
@@ -660,9 +696,10 @@ enum ShortcutAction: String, CaseIterable {
         case .tabChat: return "Tab Chat"
         case .tabTodo: return "Tab Todo"
         case .tabReminders: return "Tab Pengingat"
+        case .tabNotes: return "Tab Catatan"
         case .nextTab: return "Tab berikutnya"
         case .previousTab: return "Tab sebelumnya"
-        case .newItem: return "Todo / pengingat baru"
+        case .newItem: return "Todo / pengingat / catatan baru"
         case .search: return "Cari"
         case .resync: return "Sinkronkan ulang"
         }
@@ -672,10 +709,10 @@ enum ShortcutAction: String, CaseIterable {
         switch self {
         case .toggleChat: return "Popover langsung di tab Chat, dari aplikasi mana pun."
         case .togglePopover: return "Sama dengan klik ikon di menu bar: popover di tab terakhir, dari aplikasi mana pun."
-        case .tabChat, .tabTodo, .tabReminders: return "Pindah tab di popover."
+        case .tabChat, .tabTodo, .tabReminders, .tabNotes: return "Pindah tab di popover."
         case .nextTab, .previousTab: return "Pindah tab di popover secara berurutan (berputar)."
         case .newItem: return "Kartu tambah di popover, juga tombol ＋ di Pengaturan → Todo / Pengingat."
-        case .search: return "Fokus ke kolom cari di tab Todo & Pengingat."
+        case .search: return "Fokus ke kolom cari di tab Todo, Pengingat & Catatan."
         case .resync: return "Ambil ulang data dari server (tombol ↻)."
         }
     }
@@ -691,6 +728,7 @@ enum ShortcutAction: String, CaseIterable {
         case .tabChat: return KeyCombo(keyCode: 0x12, chars: "1", mods: cmd)
         case .tabTodo: return KeyCombo(keyCode: 0x13, chars: "2", mods: cmd)
         case .tabReminders: return KeyCombo(keyCode: 0x14, chars: "3", mods: cmd)
+        case .tabNotes: return KeyCombo(keyCode: 0x15, chars: "4", mods: cmd)
         case .nextTab: return KeyCombo(keyCode: KeyCombo.tabKey, chars: "\t", mods: ctrl)
         case .previousTab: return KeyCombo(keyCode: KeyCombo.tabKey, chars: "\t", mods: ctrl | shift)
         case .newItem: return KeyCombo(keyCode: 0x2D, chars: "n", mods: cmd)

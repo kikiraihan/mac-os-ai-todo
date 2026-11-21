@@ -81,7 +81,7 @@ function onBatchUpdate(b) {
 }
 
 async function clearAll() {
-  if (!confirm('Hapus seluruh riwayat chat? Todo, pengingat, dan ingatan tidak ikut terhapus.')) return
+  if (!confirm('Hapus seluruh riwayat chat? Todo, pengingat, catatan, dan ingatan tidak ikut terhapus.')) return
   try {
     await del('/chat')
     messages.value = []

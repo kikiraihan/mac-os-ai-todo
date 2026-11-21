@@ -19,6 +19,7 @@ const userNav = [
   { to: '/', icon: 'chat', label: 'Asisten' },
   { to: '/todo', icon: 'check', label: 'Todo' },
   { to: '/pengingat', icon: 'bell', label: 'Pengingat' },
+  { to: '/catatan', icon: 'doc', label: 'Catatan' },
   { to: '/ingatan', icon: 'brain', label: 'Ingatan' },
   { to: '/pengaturan', icon: 'gear', label: 'Pengaturan' },
 ]

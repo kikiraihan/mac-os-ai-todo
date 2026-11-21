@@ -95,6 +95,11 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/todos/{id}/reopen", s.authed(s.reopenTodo))
 	m.HandleFunc("POST /api/todos/archive-done", s.authed(s.archiveDone))
 
+	m.HandleFunc("GET /api/notes", s.authed(s.listNotes))
+	m.HandleFunc("POST /api/notes", s.authed(s.createNote))
+	m.HandleFunc("PUT /api/notes/{id}", s.authed(s.updateNote))
+	m.HandleFunc("DELETE /api/notes/{id}", s.authed(s.deleteNote))
+
 	m.HandleFunc("GET /api/reminders", s.authed(s.listReminders))
 	m.HandleFunc("GET /api/reminders/upcoming", s.authed(s.upcoming))
 	m.HandleFunc("POST /api/reminders", s.authed(s.createReminder))

@@ -13,6 +13,7 @@ import (
 
 const helpText = `Perintah tanpa AI (selalu bisa dipakai):
 /todo <judul> — tambah todo
+/catat <teks> — simpan catatan (teks atau link)
 /selesai <nomor> — tandai todo #nomor selesai
 /hari-ini — todo hari ini & yang terlambat
 /undo — batalkan aksi terakhir
@@ -30,6 +31,11 @@ func (a *Assistant) shortcut(user db.User, loc *time.Location, text string) answ
 			return answer{text: "Tulis judulnya, mis. /todo beli galon"}
 		}
 		return a.shortcutOps(user, loc, []Op{{Op: "todo.create", Title: &arg}}, "Oke, sudah kucatat.")
+	case "/catat", "/catatan", "/note":
+		if arg == "" {
+			return answer{text: "Tulis isinya, mis. /catat resep sambal: cabai, bawang, terasi"}
+		}
+		return a.shortcutOps(user, loc, []Op{noteFromText(arg)}, "Oke, sudah kusimpan di Catatan.")
 	case "/selesai", "/done":
 		id, err := strconv.ParseInt(strings.TrimPrefix(arg, "#"), 10, 64)
 		if err != nil || id <= 0 {
@@ -57,6 +63,17 @@ func (a *Assistant) shortcut(user db.User, loc *time.Location, text string) answ
 	default:
 		return answer{text: helpText}
 	}
+}
+
+// noteFromText: teks dengan link → link masuk ke isi (bisa diklik), judul diambil
+// otomatis dari baris pertama; tanpa link → baris pertama = judul, sisanya = isi.
+func noteFromText(text string) Op {
+	if strings.Contains(text, "http://") || strings.Contains(text, "https://") || strings.Contains(text, "www.") {
+		return Op{Op: "note.create", Content: &text}
+	}
+	title, rest, _ := strings.Cut(text, "\n")
+	rest = strings.TrimSpace(rest)
+	return Op{Op: "note.create", Title: &title, Content: &rest}
 }
 
 func (a *Assistant) shortcutOps(user db.User, loc *time.Location, ops []Op, ok string) answer {
