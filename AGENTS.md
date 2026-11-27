@@ -92,6 +92,9 @@ Semua tampilan (aplikasi Mac & web) mengikuti gaya desain Apple (Human Interface
   (`Notifier.kt`, `ActionReceiver.kt`) — jangan membuat jadwal notifikasi sendiri di HP.
 - **Kiriman** (web `/kiriman`, Mac klik kanan ikon → "Kirim clipboard ke HP" / menu baris "Kirim ke HP", Android tab
   Kiriman, MCP `send_to_devices`): teks sementara antarperangkat (7 hari, 50 terbaru), pengirim tidak ikut diberi tahu.
+- **Tawaran aplikasi Android di web** (`components/AndroidAppCard.vue`, `src/androidApp.js`): spanduk di dashboard hanya
+  untuk browser Android & bisa ditutup (diingat), kartu di Pengaturan & `/aplikasi`, ajakan di halaman masuk. Unduhan
+  `/unduh/AITodo.apk` tetap wajib login.
 
 ## Aturan yang tidak boleh dilonggarkan
 

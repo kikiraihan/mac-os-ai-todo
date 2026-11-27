@@ -5,6 +5,7 @@ import { get, post, put, del } from '../api'
 import { state, toast, errorText, logout, loadMe } from '../store'
 import { timeAgo } from '../dates'
 import { copyText } from '../copy'
+import AndroidAppCard from '../components/AndroidAppCard.vue'
 import Icon from '../components/Icon.vue'
 import { pushState as readPushState, enablePush as turnOnPush, disablePush as turnOffPush, syncPush } from '../push'
 import { appVersion, update, checkUpdate, applyUpdate, forceReload, serverNewer } from '../update'
@@ -299,6 +300,11 @@ onMounted(() => {
           </tbody>
         </table>
       </div>
+    </section>
+
+    <section class="card">
+      <h3>Aplikasi Android</h3>
+      <AndroidAppCard />
     </section>
 
     <section class="card">

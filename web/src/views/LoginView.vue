@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { post } from '../api'
 import { state, loadMe, refreshData, startSync, errorText } from '../store'
+import { isAndroid } from '../androidApp'
 
 const route = useRoute()
 const router = useRouter()
@@ -42,6 +43,10 @@ async function submit() {
         <input v-model="password" type="password" autocomplete="current-password" required />
       </label>
       <button class="btn primary login-btn" :disabled="busy">{{ busy ? 'Masuk…' : 'Masuk' }}</button>
+      <p v-if="isAndroid" class="hint apk-hint">
+        📱 Ada <b>aplikasi Android</b> AI Todo (notifikasi dengan tombol Salin).
+        <RouterLink :to="{ name: 'login', query: { next: '/aplikasi' } }">Masuk untuk mengunduh →</RouterLink>
+      </p>
       <p class="hint">Belum punya akun? Minta admin membuatkannya.</p>
       <p class="hint">
         <RouterLink to="/admin">{{ state.admin ? 'Kembali ke mode admin →' : 'Masuk sebagai admin →' }}</RouterLink>

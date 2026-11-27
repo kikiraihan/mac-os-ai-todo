@@ -15,6 +15,9 @@ minSdk 26 (Android 8), satu APK untuk server mana pun.
 - **Kiriman**: kirim teks dari HP ke Mac / web (dan sebaliknya: Mac → klik kanan ikon → *Kirim clipboard ke HP*,
   web → menu Kiriman, AI lain → tool MCP `send_to_devices`). Disimpan 7 hari (maks. 50).
 - **Bagikan → AI Todo** dari aplikasi lain: jadi Kiriman, todo hari ini, atau catatan.
+- **Unduh dari web**: halaman masuk (browser Android) menawarkan aplikasi; setelah login, spanduk "Pasang aplikasi
+  Android" di dashboard (hanya browser Android, bisa ditutup & diingat), bagian **Aplikasi Android** di Pengaturan,
+  dan halaman `/aplikasi`. Tautan `/unduh/AITodo.apk` wajib login (belum login → halaman masuk → kembali ke `/aplikasi`).
 - Pembaruan lewat server (Pengaturan → Periksa pembaruan): `AITodo.apk` diunduh lewat `/api/app/android/*`
   (wajib login; repo GitHub boleh private). Android sendiri memastikan tanda tangan APK sama.
 

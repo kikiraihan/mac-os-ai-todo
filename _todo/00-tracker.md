@@ -320,6 +320,9 @@ Rancangan: [`../docs/PRD.md`](../docs/PRD.md). Perbarui setiap tugas selesai.
         Catatan | Kiriman, geser kanan/kiri, picker tanggal & jam, notifikasi dengan **Salin / Selesai / Tunda** langsung
         dari notifikasi, FCM (tanpa google-services.json) atau koneksi langsung, Bagikan → AI Todo, pembaruan APK lewat
         server. CI: job `android` di `mac.yml` + rilis gabungan
+      - **Unduh APK dari web**: `GET /unduh/AITodo.apk` (navigasi browser, wajib login → belum login diarahkan ke masuk
+        lalu `/aplikasi`); halaman masuk menawarkan aplikasi (browser Android), spanduk "Pasang aplikasi Android" di
+        dashboard (browser Android, bisa ditutup), bagian Aplikasi Android di Pengaturan, halaman `/aplikasi`
 - [ ] Pemilik: isi `PUBLIC_URL` (sudah) lalu sambungkan Claude → Settings → Connectors → `https://DOMAIN/mcp`
 - [ ] Pemilik: buat kunci tanda tangan Android + secret `ANDROID_KEYSTORE_*` (ANDROID.md §3) supaya rilis berisi AITodo.apk
 - [ ] Pemilik (opsional): proyek Firebase + `FCM_*` di `.env` (ANDROID.md §2); tanpa ini Android memakai koneksi langsung

@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { state } from './store'
 import Icon from './components/Icon.vue'
+import AndroidAppCard from './components/AndroidAppCard.vue'
 import { today } from './dates'
 
 const route = useRoute()
@@ -78,6 +79,8 @@ const mobileNav = computed(() => (adminMode.value ? mobileAdminNav : mobileUserN
     </header>
     <main class="main">
       <div v-if="!state.online" class="offline">Offline — perubahan akan tersinkron saat koneksi kembali.</div>
+      <!-- Browser Android: tawaran pasang aplikasi native (bisa ditutup, diingat). -->
+      <AndroidAppCard v-if="!adminMode && route.name !== 'android'" banner />
       <RouterView />
     </main>
   </div>

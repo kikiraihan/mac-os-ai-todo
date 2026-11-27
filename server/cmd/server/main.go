@@ -204,6 +204,8 @@ func main() {
 	mux.Handle("/.well-known/oauth-protected-resource", srv.Mux)
 	mux.Handle("/.well-known/oauth-protected-resource/", srv.Mux)
 	mux.Handle("/.well-known/oauth-authorization-server", srv.Mux)
+	// Unduh APK Android dari web (wajib login, lihat httpapi/release.go).
+	mux.Handle("/unduh/", srv.Mux)
 	mux.Handle("/", webui.Handler())
 
 	addr := getenv("ADDR", "127.0.0.1:8080")

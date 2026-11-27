@@ -15,6 +15,7 @@ const router = createRouter({
     { path: '/todo', name: 'todos', component: TodosView, meta: { title: 'Todo' } },
     { path: '/catatan', name: 'notes', component: NotesView, meta: { title: 'Catatan' } },
     { path: '/pengingat', name: 'reminders', component: RemindersView, meta: { title: 'Pengingat' } },
+    { path: '/aplikasi', name: 'android', component: () => import('./views/AndroidView.vue'), meta: { title: 'Aplikasi Android' } },
     { path: '/kiriman', name: 'clips', component: () => import('./views/ClipsView.vue'), meta: { title: 'Kiriman' } },
     // Persetujuan OAuth untuk AI lain lewat MCP (server/internal/httpapi/oauth.go): wajib login, tanpa menu.
     { path: '/izinkan', name: 'consent', component: () => import('./views/ConsentView.vue'), meta: { title: 'Izinkan akses', bare: true } },
