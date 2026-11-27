@@ -19,7 +19,9 @@ import (
 )
 
 // Assets: satu-satunya file rilis yang boleh diteruskan ke klien.
-var Assets = []string{"AITodo.zip", "AITodo.zip.sig"}
+// AITodo.apk = aplikasi Android (keasliannya dicek Android sendiri: tanda tangan APK harus sama
+// dengan aplikasi yang terpasang).
+var Assets = []string{"AITodo.zip", "AITodo.zip.sig", "AITodo.apk"}
 
 // MaxAssetSize: batas ukuran satu file rilis yang diteruskan.
 const MaxAssetSize = 200 << 20
@@ -49,6 +51,7 @@ type Info struct {
 	Page        string `json:"page"` // halaman rilis di GitHub (butuh login kalau repo private)
 	Zip         bool   `json:"zip"`
 	Sig         bool   `json:"sig"`
+	Apk         bool   `json:"apk"`
 
 	assets map[string]int64 // nama → id aset GitHub (tidak dikirim ke klien)
 }
@@ -153,6 +156,7 @@ func (s *Service) fetch(ctx context.Context) (Info, error) {
 	}
 	_, info.Zip = info.assets["AITodo.zip"]
 	_, info.Sig = info.assets["AITodo.zip.sig"]
+	_, info.Apk = info.assets["AITodo.apk"]
 	return info, nil
 }
 

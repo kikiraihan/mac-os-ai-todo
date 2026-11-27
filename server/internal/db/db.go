@@ -234,6 +234,69 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
 	auth TEXT NOT NULL,
 	created_at TEXT NOT NULL
 );
+
+-- Kiriman: teks yang dikirim dari satu perangkat ke perangkat lain (mis. Mac → HP),
+-- seperti PasteLAN. Sementara: dipangkas otomatis (core.MaxClipsPerUser, ClipRetention).
+CREATE TABLE IF NOT EXISTS clips (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	content TEXT NOT NULL,
+	device TEXT NOT NULL DEFAULT '',
+	session_id INTEGER NOT NULL DEFAULT 0,
+	created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_clips_user ON clips(user_id, id);
+
+-- Kotak masuk notifikasi: salinan setiap notifikasi yang dikirim server (pengingat,
+-- tenggat, kiriman, ...). Dibaca aplikasi Android lewat long-poll bila FCM tidak
+-- dipasang, dan untuk menghindari notifikasi ganda. Dipangkas setelah 2 hari.
+CREATE TABLE IF NOT EXISTS notifications (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	payload TEXT NOT NULL,
+	except_session_id INTEGER NOT NULL DEFAULT 0,
+	created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, id);
+
+-- Token Firebase Cloud Messaging aplikasi Android (satu per sesi perangkat).
+CREATE TABLE IF NOT EXISTS fcm_tokens (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	session_id INTEGER REFERENCES sessions(id) ON DELETE CASCADE,
+	token TEXT NOT NULL UNIQUE,
+	created_at TEXT NOT NULL
+);
+
+-- OAuth 2.1 untuk konektor MCP (mis. claude.ai). Klien didaftarkan sendiri
+-- (dynamic client registration); izin selalu lewat halaman persetujuan pengguna.
+CREATE TABLE IF NOT EXISTS oauth_clients (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	client_id TEXT NOT NULL UNIQUE,
+	name TEXT NOT NULL DEFAULT '',
+	redirect_uris TEXT NOT NULL,
+	created_at TEXT NOT NULL,
+	last_used_at TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS oauth_codes (
+	code_hash TEXT PRIMARY KEY,
+	client_id TEXT NOT NULL,
+	user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	redirect_uri TEXT NOT NULL,
+	challenge TEXT NOT NULL,
+	scope TEXT NOT NULL,
+	resource TEXT NOT NULL DEFAULT '',
+	expires_at TEXT NOT NULL
+);
+
+-- Refresh token terikat ke satu sesi MCP; mencabut sesi (Pengaturan) ikut menghapusnya.
+CREATE TABLE IF NOT EXISTS oauth_refresh (
+	token_hash TEXT PRIMARY KEY,
+	session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+	client_id TEXT NOT NULL,
+	expires_at TEXT NOT NULL
+);
 `
 
 // Open membuka (dan bila perlu membuat) database di path.
@@ -259,7 +322,40 @@ func Open(path string) (*DB, error) {
 		sqlDB.Close()
 		return nil, fmt.Errorf("migrate ai_models: %w", err)
 	}
+	if err := d.addColumn("sessions", "scope", `TEXT NOT NULL DEFAULT ''`); err != nil {
+		sqlDB.Close()
+		return nil, fmt.Errorf("migrate sessions: %w", err)
+	}
+	if err := d.addColumn("sessions", "client_id", `TEXT NOT NULL DEFAULT ''`); err != nil {
+		sqlDB.Close()
+		return nil, fmt.Errorf("migrate sessions: %w", err)
+	}
 	return d, nil
+}
+
+// addColumn menambah kolom ke tabel lama kalau belum ada (migrasi ringan).
+func (d *DB) addColumn(table, column, def string) error {
+	rows, err := d.Query(`PRAGMA table_info(` + table + `)`)
+	if err != nil {
+		return err
+	}
+	has := false
+	for rows.Next() {
+		var cid, notnull, pk int
+		var name, typ string
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk); err != nil {
+			rows.Close()
+			return err
+		}
+		has = has || name == column
+	}
+	rows.Close()
+	if has {
+		return nil
+	}
+	_, err = d.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + column + ` ` + def)
+	return err
 }
 
 // Tx menjalankan f dalam satu transaksi; error dari f membatalkan semuanya.

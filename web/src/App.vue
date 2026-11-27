@@ -8,7 +8,7 @@ import { today } from './dates'
 const route = useRoute()
 // Dua mode terpisah: /admin/... = mode admin (akun admin), selain itu = mode pengguna.
 const adminMode = computed(() => !!route.meta.admin)
-const showShell = computed(() => (adminMode.value ? !!state.admin : !!state.me) && !route.meta.public && !route.meta.adminPublic)
+const showShell = computed(() => (adminMode.value ? !!state.admin : !!state.me) && !route.meta.public && !route.meta.adminPublic && !route.meta.bare)
 const who = computed(() => (adminMode.value ? state.admin?.displayName || state.admin?.username : state.me?.displayName || state.me?.username))
 const openCount = computed(() => {
   const t = today()
@@ -20,6 +20,7 @@ const userNav = [
   { to: '/todo', icon: 'check', label: 'Todo' },
   { to: '/pengingat', icon: 'bell', label: 'Pengingat' },
   { to: '/catatan', icon: 'doc', label: 'Catatan' },
+  { to: '/kiriman', icon: 'send', label: 'Kiriman' },
   { to: '/ingatan', icon: 'brain', label: 'Ingatan' },
   { to: '/pengaturan', icon: 'gear', label: 'Pengaturan' },
 ]
@@ -32,7 +33,8 @@ const adminNav = [
   { to: '/admin/system-log', icon: 'alert', label: 'System Log' },
   { to: '/admin/akun', icon: 'shield', label: 'Akun admin' },
 ]
-const mobileUserNav = userNav.filter((n) => n.to !== '/ingatan')
+// HP: Ingatan & Kiriman dibuka dari Pengaturan (menu atas tetap 5 item).
+const mobileUserNav = userNav.filter((n) => n.to !== '/ingatan' && n.to !== '/kiriman')
 // Di HP: log & asisten dibuka dari halaman Akun admin.
 const mobileAdminNav = adminNav.filter((n) => !['/admin/asisten', '/admin/ai-call-log', '/admin/system-log'].includes(n.to))
 const nav = computed(() => (adminMode.value ? adminNav : userNav))

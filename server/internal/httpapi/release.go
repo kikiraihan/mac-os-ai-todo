@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"aitodo/server/internal/release"
@@ -19,6 +20,9 @@ func (s *Server) releaseRoutes() {
 	m := s.Mux
 	m.HandleFunc("GET /api/app/mac/latest", s.authed(s.macLatest))
 	m.HandleFunc("GET /api/app/mac/download/{name}", s.authed(s.macDownload))
+	// Android memakai rilis yang sama (file AITodo.apk).
+	m.HandleFunc("GET /api/app/android/latest", s.authed(s.macLatest))
+	m.HandleFunc("GET /api/app/android/download/{name}", s.authed(s.macDownload))
 }
 
 func releaseErr(w http.ResponseWriter, err error) {
@@ -62,7 +66,11 @@ func (s *Server) macDownload(w http.ResponseWriter, r *http.Request) {
 	err := s.Release.Download(r.Context(), name, w, func(size int64) {
 		started = true
 		h := w.Header()
-		h.Set("Content-Type", "application/octet-stream")
+		if strings.HasSuffix(name, ".apk") {
+			h.Set("Content-Type", "application/vnd.android.package-archive")
+		} else {
+			h.Set("Content-Type", "application/octet-stream")
+		}
 		h.Set("Content-Disposition", `attachment; filename="`+name+`"`)
 		if size >= 0 {
 			h.Set("Content-Length", strconv.FormatInt(size, 10))

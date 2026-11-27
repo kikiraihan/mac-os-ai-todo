@@ -1,6 +1,9 @@
 // Handler Web Push untuk service worker hasil Workbox (lihat vite.config.js).
 // Notifikasi pengingat punya tombol "Tunda 10 mnt", notifikasi todo punya
 // tombol "Selesai" — keduanya memanggil API dengan cookie sesi yang sama.
+// Notifikasi kiriman punya tombol "Salin": service worker tidak boleh menulis
+// clipboard, jadi tombol itu membuka halaman Kiriman dengan tombol Salin besar
+// (aplikasi Android native bisa langsung menyalin dari notifikasi).
 
 self.addEventListener('push', (event) => {
   let data = {}
@@ -12,6 +15,8 @@ self.addEventListener('push', (event) => {
   const actions = []
   if (data.todoId) actions.push({ action: 'done', title: 'Selesai' })
   if (data.reminderId) actions.push({ action: 'snooze', title: 'Tunda 10 mnt' })
+  const clipId = Number(data.clipId) || 0
+  if (clipId) actions.push({ action: 'copy', title: 'Salin' })
   event.waitUntil(
     self.registration.showNotification(data.title || 'AI Todo', {
       body: data.body || '',
@@ -20,7 +25,7 @@ self.addEventListener('push', (event) => {
       tag: data.tag || 'aitodo',
       renotify: true,
       actions,
-      data: { url: data.url || '/', todoId: data.todoId || 0, reminderId: data.reminderId || 0 },
+      data: { url: clipId ? `/kiriman?salin=${clipId}` : data.url || '/', todoId: data.todoId || 0, reminderId: data.reminderId || 0 },
     }),
   )
 })

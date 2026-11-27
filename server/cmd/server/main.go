@@ -20,7 +20,9 @@ import (
 
 	"aitodo/server/internal/ai"
 	"aitodo/server/internal/applog"
+	"aitodo/server/internal/core"
 	"aitodo/server/internal/db"
+	"aitodo/server/internal/fcm"
 	"aitodo/server/internal/httpapi"
 	"aitodo/server/internal/push"
 	"aitodo/server/internal/release"
@@ -143,6 +145,7 @@ func main() {
 		DefaultTZ:     loc,
 
 		AICallRetentionDays: retention,
+		PublicURL:           getenv("PUBLIC_URL", ""),
 	})
 	srv.SystemLog = systemLog
 
@@ -165,6 +168,26 @@ func main() {
 	}
 	srv.Release = rel
 
+	// Notifikasi aplikasi Android lewat FCM (opsional). Tanpa ini Android memakai long-poll.
+	// Kredensial hanya dari env; isi notifikasi tidak lewat Google (lihat internal/fcm).
+	if creds, err := fcm.LoadCredentials(os.Getenv("FCM_CREDENTIALS")); err != nil {
+		log.Printf("PERINGATAN: %v — FCM dimatikan", err)
+	} else if creds != nil {
+		fc, err := fcm.New(creds, fcm.ClientConfig{AppID: getenv("FCM_ANDROID_APP_ID", ""), APIKey: getenv("FCM_API_KEY", ""),
+			SenderID: getenv("FCM_SENDER_ID", "")})
+		if err != nil {
+			log.Printf("PERINGATAN: %v — FCM dimatikan", err)
+		} else {
+			pushSvc.FCM = fc
+			srv.FCM = fc
+			state := "aktif"
+			if !fc.Ready() {
+				state = "kredensial ada, tapi FCM_ANDROID_APP_ID / FCM_API_KEY / FCM_SENDER_ID belum diisi"
+			}
+			log.Printf("FCM proyek %s: %s", fc.ProjectID, state)
+		}
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	sched := &scheduler.Scheduler{DB: database, Push: pushSvc, Loc: func(u db.User) *time.Location { return srv.LoadLocation(u.Timezone) },
@@ -174,6 +197,13 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.Handle("/api/", srv.Mux)
+	// MCP (AI lain, mis. Claude) & OAuth-nya — di luar /api/ karena klien MCP tidak mengirim
+	// header X-AITodo; hanya menerima Bearer token, tanpa cookie (lihat httpapi/mcp.go).
+	mux.Handle("/mcp", srv.Mux)
+	mux.Handle("/oauth/", srv.Mux)
+	mux.Handle("/.well-known/oauth-protected-resource", srv.Mux)
+	mux.Handle("/.well-known/oauth-protected-resource/", srv.Mux)
+	mux.Handle("/.well-known/oauth-authorization-server", srv.Mux)
 	mux.Handle("/", webui.Handler())
 
 	addr := getenv("ADDR", "127.0.0.1:8080")
@@ -331,6 +361,15 @@ func housekeeping(ctx context.Context, d *db.DB, aiCallRetentionDays int) {
 		}
 		if err := d.PruneChat(500); err != nil {
 			log.Printf("housekeeping: chat: %v", err)
+		}
+		if err := d.PruneClips(db.Stamp(time.Now().Add(-core.ClipRetention))); err != nil {
+			log.Printf("housekeeping: kiriman: %v", err)
+		}
+		if err := d.PruneNotifications(db.Stamp(time.Now().Add(-48 * time.Hour))); err != nil {
+			log.Printf("housekeeping: kotak masuk notifikasi: %v", err)
+		}
+		if err := d.PruneOAuth(); err != nil {
+			log.Printf("housekeeping: oauth: %v", err)
 		}
 		if aiCallRetentionDays > 0 {
 			if err := d.PruneAICalls(time.Now().AddDate(0, 0, -aiCallRetentionDays)); err != nil {

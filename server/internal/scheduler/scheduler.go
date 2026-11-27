@@ -117,6 +117,7 @@ func (s *Scheduler) runOnce(now time.Time) {
 func (s *Scheduler) notify(userID int64, p UserPrefs, n push.Notification) {
 	if p.HideContent {
 		n.Title, n.Body = "Pengingat", "Buka AI Todo untuk melihatnya"
+		n.Text = ""
 	}
 	if _, err := s.Push.SendToUser(userID, n); err != nil && !strings.Contains(err.Error(), "belum ada perangkat") {
 		log.Printf("scheduler: push user %d: %v", userID, err)
@@ -168,10 +169,14 @@ func (s *Scheduler) fireReminders(now time.Time, users map[int64]db.User, prefsO
 		if now.Sub(fireAt) > 2*time.Minute {
 			body = "(terlambat) " + body
 		}
-		n := push.Notification{Title: r.Title, Body: body, URL: "/pengingat", Tag: fmt.Sprintf("reminder-%d", r.ID), ReminderID: r.ID}
+		n := push.Notification{Kind: "reminder", Title: r.Title, Body: body, URL: "/pengingat", Tag: fmt.Sprintf("reminder-%d", r.ID),
+			ReminderID: r.ID, Text: copyText(r.Title, r.Message)}
 		if r.TodoID != nil {
 			n.TodoID = *r.TodoID
 			n.URL = "/todo"
+			if t, err := db.GetTodo(s.DB, r.UserID, *r.TodoID); err == nil {
+				n.Text = copyText(t.Title, t.Notes)
+			}
 		}
 		s.notify(r.UserID, prefsOf(r.UserID), n)
 	}
@@ -211,7 +216,8 @@ func (s *Scheduler) dueTodos(now time.Time, users map[int64]db.User, prefsOf fun
 		if mins > 0 {
 			body = fmt.Sprintf("Tenggat %d menit lagi (%s)", mins, t.DueTime)
 		}
-		s.notify(t.UserID, p, push.Notification{Title: t.Title, Body: body, URL: "/todo", Tag: fmt.Sprintf("todo-%d", t.ID), TodoID: t.ID})
+		s.notify(t.UserID, p, push.Notification{Kind: "due", Title: t.Title, Body: body, URL: "/todo", Tag: fmt.Sprintf("todo-%d", t.ID),
+			TodoID: t.ID, Text: copyText(t.Title, t.Notes)})
 	}
 }
 
@@ -257,6 +263,15 @@ func (s *Scheduler) openTodos(u db.User) []db.Todo {
 	return ts
 }
 
+// copyText: teks tombol "Salin" di notifikasi — sama dengan salin todo di aplikasi
+// ("Judul" + baris kosong + detail).
+func copyText(title, detail string) string {
+	if strings.TrimSpace(detail) == "" {
+		return title
+	}
+	return title + "\n\n" + strings.TrimSpace(detail)
+}
+
 func titles(ts []db.Todo, n int) string {
 	var out []string
 	for i, t := range ts {
@@ -286,7 +301,7 @@ func (s *Scheduler) brief(u db.User, today string) (push.Notification, bool) {
 	if len(late) > 0 {
 		title += fmt.Sprintf(", %d terlambat", len(late))
 	}
-	return push.Notification{Title: title, Body: titles(append(todayList, late...), 3), URL: "/todo", Tag: "brief-" + today}, true
+	return push.Notification{Kind: "brief", Title: title, Body: titles(append(todayList, late...), 3), URL: "/todo", Tag: "brief-" + today}, true
 }
 
 func (s *Scheduler) nudge(u db.User, today string) (push.Notification, bool) {
@@ -299,6 +314,6 @@ func (s *Scheduler) nudge(u db.User, today string) (push.Notification, bool) {
 	if len(late) == 0 {
 		return push.Notification{}, false
 	}
-	return push.Notification{Title: fmt.Sprintf("%d todo lewat tenggat", len(late)), Body: titles(late, 3), URL: "/todo",
+	return push.Notification{Kind: "nudge", Title: fmt.Sprintf("%d todo lewat tenggat", len(late)), Body: titles(late, 3), URL: "/todo",
 		Tag: "nudge-" + today}, true
 }

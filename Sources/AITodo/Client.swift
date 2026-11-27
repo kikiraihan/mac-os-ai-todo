@@ -74,6 +74,41 @@ struct Note: Codable, Equatable {
     var updatedAt: String? = nil
 }
 
+/// Kiriman: teks antarperangkat (Mac → notifikasi HP dengan tombol Salin, dan sebaliknya).
+struct Clip: Codable, Equatable {
+    let id: Int64
+    let content: String
+    let device: String
+    let createdAt: String
+}
+
+/// Satu notifikasi dari kotak masuk server (GET /api/notifications). Mac hanya memakai jenis "clip";
+/// pengingat & tenggat sudah dijadwalkan lokal (NotificationPlan).
+struct InboxItem: Codable, Equatable {
+    let id: Int64
+    let kind: String?
+    let title: String
+    let body: String
+    let clipId: Int64?
+    let text: String?
+    let textTruncated: Bool?
+}
+
+struct Inbox: Codable {
+    let last: Int64
+    let items: [InboxItem]
+}
+
+enum ClipInbox {
+    /// Kiriman baru dari perangkat lain (server sudah membuang kiriman dari perangkat ini sendiri).
+    static func clips(_ items: [InboxItem]) -> [InboxItem] { items.filter { $0.kind == "clip" && ($0.clipId ?? 0) > 0 } }
+
+    /// Posisi baca berikutnya: id terbesar yang diterima; kosong = nomor terakhir server.
+    static func next(after current: Int64, inbox: Inbox) -> Int64 {
+        max(current, inbox.items.map(\.id).max() ?? (inbox.items.isEmpty ? inbox.last : current))
+    }
+}
+
 struct Occurrence: Codable, Equatable {
     let reminderId: Int64
     let todoId: Int64?
@@ -475,6 +510,29 @@ final class APIClient {
 
     func logout(_ c: @escaping (Result<Ok, APIError>) -> Void) {
         send("POST", "/logout", as: Ok.self, completion: c)
+    }
+
+    // MARK: Kiriman (sama dengan web → Kiriman)
+
+    struct ClipSent: Decodable { let clip: Clip; let sent: Int }
+    /// Kirim teks ke perangkat lain (HP Android dapat notifikasi dengan tombol Salin).
+    func sendClip(_ content: String, _ c: @escaping (Result<ClipSent, APIError>) -> Void) {
+        send("POST", "/clips", body: ["content": content], as: ClipSent.self, completion: c)
+    }
+
+    struct ClipResult: Decodable { let clip: Clip }
+    func clip(_ id: Int64, _ c: @escaping (Result<ClipResult, APIError>) -> Void) {
+        send("GET", "/clips/\(id)", as: ClipResult.self, completion: c)
+    }
+
+    struct Clips: Decodable { let clips: [Clip] }
+    func clips(_ c: @escaping (Result<Clips, APIError>) -> Void) {
+        send("GET", "/clips", as: Clips.self, completion: c)
+    }
+
+    /// Kotak masuk notifikasi. after nil = hanya nomor terakhir (saat baru terhubung, supaya yang lama tidak muncul).
+    func inbox(after: Int64?, _ c: @escaping (Result<Inbox, APIError>) -> Void) {
+        send("GET", after.map { "/notifications?after=\($0)" } ?? "/notifications", as: Inbox.self, completion: c)
     }
 
     // MARK: Pembaruan aplikasi (lewat server, repo GitHub boleh private)

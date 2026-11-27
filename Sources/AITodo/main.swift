@@ -180,6 +180,13 @@ final class Store {
     private var refreshing = false
     private var refreshWaiters: [() -> Void] = []
 
+    /// Kiriman baru dari perangkat lain (HP, web, AI lain lewat MCP) → notifikasi dengan tombol Salin.
+    var onClips: (([InboxItem]) -> Void)?
+    /// Posisi baca kotak masuk notifikasi server; nil = baru terhubung (yang lama tidak dimunculkan).
+    private var inboxLast: Int64?
+    private var inboxBusy = false
+    private var inboxAgain = false
+
     var tz: TimeZone { Clock.zone(me?.timezone ?? TimeZone.current.identifier) }
     var buckets: TodoBuckets { TodoBuckets(todos, now: Date(), tz: tz) }
     var connected: Bool { api.isConfigured && !needsLogin }
@@ -264,6 +271,7 @@ final class Store {
 
     func reset() {
         stop()
+        inboxLast = nil
         me = nil
         todos = []
         occurrences = []
@@ -314,6 +322,7 @@ final class Store {
                                                 self.lastSync = Date()
                                                 self.lastError = nil
                                                 self.finish(error: nil)
+                                                self.checkInbox()
                                             }
                                         }
                                     }
@@ -337,6 +346,28 @@ final class Store {
         refresh { [weak self] in
             self?.poll(g)
             done()
+        }
+    }
+
+    /// Ambil notifikasi baru dari kotak masuk server; hanya kiriman yang dipakai (pengingat dijadwalkan lokal).
+    private func checkInbox() {
+        guard !inboxBusy else { inboxAgain = true; return }
+        inboxBusy = true
+        api.inbox(after: inboxLast) { [weak self] r in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.inboxBusy = false
+                if case .success(let box) = r {
+                    let first = self.inboxLast == nil
+                    self.inboxLast = ClipInbox.next(after: self.inboxLast ?? 0, inbox: box)
+                    let clips = ClipInbox.clips(box.items)
+                    if !first && !clips.isEmpty { self.onClips?(clips) }
+                }
+                if self.inboxAgain {
+                    self.inboxAgain = false
+                    self.checkInbox()
+                }
+            }
         }
     }
 
@@ -398,7 +429,31 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
             UNNotificationCategory(identifier: "todo", actions: [done], intentIdentifiers: [], options: []),
             UNNotificationCategory(identifier: "reminder", actions: [snooze], intentIdentifiers: [], options: []),
             UNNotificationCategory(identifier: "reminder-todo", actions: [done, snooze], intentIdentifiers: [], options: []),
+            UNNotificationCategory(identifier: "clip", actions: [UNNotificationAction(identifier: "COPY", title: "Salin", options: [])],
+                                   intentIdentifiers: [], options: []),
         ])
+    }
+
+    /// Kiriman dari perangkat lain: notifikasi langsung dengan tombol Salin (klik notifikasi juga menyalin).
+    func showClip(_ item: InboxItem) {
+        let c = UNMutableNotificationContent()
+        c.title = item.title
+        c.body = item.body
+        c.sound = .default
+        c.threadIdentifier = "aitodo-clip"
+        c.categoryIdentifier = "clip"
+        var info: [String: Any] = ["clipId": NSNumber(value: item.clipId ?? 0)]
+        if let t = item.text, item.textTruncated != true { info["text"] = t }
+        c.userInfo = info
+        center.add(UNNotificationRequest(identifier: "clip-\(item.id)", content: c, trigger: nil))
+    }
+
+    private func copyClip(_ info: [AnyHashable: Any]) {
+        if let t = info["text"] as? String { return DispatchQueue.main.async { TodoCopy.copy(text: t) } }
+        guard let id = (info["clipId"] as? NSNumber)?.int64Value, id > 0, let store else { return }
+        store.api.clip(id) { r in
+            if case .success(let c) = r { DispatchQueue.main.async { TodoCopy.copy(text: c.clip.content) } }
+        }
     }
 
     func requestAuthorization(_ done: @escaping (Bool) -> Void) {
@@ -457,6 +512,11 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         let todoId = (info["todoId"] as? NSNumber)?.int64Value
         let reminderId = (info["reminderId"] as? NSNumber)?.int64Value
         guard let store else { return completionHandler() }
+        if response.notification.request.content.categoryIdentifier == "clip",
+           response.actionIdentifier == "COPY" || response.actionIdentifier == UNNotificationDefaultActionIdentifier {
+            copyClip(info)
+            return completionHandler()
+        }
         switch response.actionIdentifier {
         case "DONE":
             if let todoId { store.api.complete(todo: todoId) { _ in DispatchQueue.main.async { store.refresh() } } }
@@ -993,6 +1053,20 @@ enum TodoCopy {
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(text, forType: .string)
+    }
+}
+
+/// Kirim teks ke perangkat lain (Kiriman) dengan umpan balik singkat untuk pemanggil.
+enum ClipSend {
+    static func send(_ text: String, api: APIClient, done: @escaping (String) -> Void) {
+        api.sendClip(text) { r in
+            DispatchQueue.main.async {
+                switch r {
+                case .success(let s): done(s.sent > 0 ? "Terkirim ke \(s.sent) perangkat" : "Tersimpan di Kiriman (belum ada perangkat lain)")
+                case .failure(let e): done("Gagal mengirim: \(e.description)")
+                }
+            }
+        }
     }
 }
 
@@ -2899,6 +2973,7 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
         add("Ubah…", #selector(editMenuItem(_:)))
         add("Salin", #selector(copyMenuItem(_:)))
         if !t.notes.isEmpty { add("Salin judul saja", #selector(copyTitleMenuItem(_:)), alternate: true) }
+        add("Kirim ke HP", #selector(sendMenuItem(_:)))
         m.addItem(.separator())
         add("Tandai selesai", #selector(completeMenuItem(_:)))
         return m
@@ -2922,6 +2997,10 @@ final class PopoverController: NSViewController, NSGestureRecognizerDelegate {
     }
 
     @objc private func copyMenuItem(_ item: NSMenuItem) { todo(item).map { copyTodo($0, titleOnly: false) } }
+    @objc private func sendMenuItem(_ item: NSMenuItem) {
+        guard let t = todo(item) else { return }
+        ClipSend.send(TodoCopy.text(t), api: store.api) { [weak self] msg in self?.flashStatus(msg) }
+    }
     @objc private func copyTitleMenuItem(_ item: NSMenuItem) { todo(item).map { copyTodo($0, titleOnly: true) } }
 
     private func copyTodo(_ t: Todo, titleOnly: Bool) {
@@ -5898,6 +5977,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         notifier.store = store
         notifier.openApp = { [weak self] in self?.showPopover(.chat) }
+        store.onClips = { [weak self] items in
+            guard let self, LocalPrefs.notifications else { return }
+            items.forEach { self.notifier.showClip($0) }
+        }
         notifier.setup()
 
         store.onChange = { [weak self] in self?.stateChanged() }
@@ -6012,6 +6095,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         contextMenu.addItem(item("Kelola semua todo…", #selector(openTodos)))
         contextMenu.addItem(item("Kelola pengingat…", #selector(openReminderSettings)))
         contextMenu.addItem(item("Catatan", #selector(openNotes)))
+        let sendClip = item("Kirim clipboard ke HP", #selector(sendClipboard))
+        sendClip.isEnabled = store.connected && NSPasteboard.general.string(forType: .string) != nil
+        contextMenu.addItem(sendClip)
         let clear = item("Hapus riwayat chat…", #selector(clearChatHistory))
         clear.isEnabled = store.connected
         contextMenu.addItem(clear)
@@ -6061,6 +6147,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         store.resync(done)
     }
     @objc func resyncNow() { resync() }
+
+    /// Klik kanan ikon → "Kirim clipboard ke HP": teks di clipboard jadi Kiriman (notifikasi Salin di HP).
+    @objc func sendClipboard() {
+        guard let text = NSPasteboard.general.string(forType: .string), !text.isEmpty else { return }
+        ClipSend.send(text, api: store.api) { [weak self] msg in
+            guard let button = self?.statusItem.button else { return }
+            let old = button.toolTip
+            button.toolTip = msg
+            if msg.hasPrefix("Gagal") {
+                let a = NSAlert()
+                a.messageText = "Kiriman gagal"
+                a.informativeText = msg
+                a.runModal()
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { button.toolTip = old }
+        }
+    }
     @objc func openManual() { showPopover(.todo) }
     @objc func openNotes() { showPopover(.notes) }
 

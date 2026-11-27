@@ -110,6 +110,7 @@ Lalu sunting `.env` (`nano .env`) dan isi nilai dari §1:
 | `VAPID_SUBSCRIBER` | `mailto:...` dari pemilik |
 | `KENARI_API_KEY` / `AGNES_API_KEY` / `OPENROUTER_API_KEY` | dari pemilik; kosongkan yang tidak dipakai |
 | `GITHUB_RELEASE_TOKEN` | token GitHub fine-grained **read-only** (repo ini saja, "Contents: Read-only") dari pemilik, supaya aplikasi Mac bisa update lewat server walau repo private; minta pemilik **menempelnya sendiri** |
+| `FCM_CREDENTIALS` + `FCM_ANDROID_APP_ID` / `FCM_API_KEY` / `FCM_SENDER_ID` | **opsional** — notifikasi aplikasi Android lewat FCM (lihat [`ANDROID.md`](ANDROID.md) §2). JSON service account adalah rahasia: minta pemilik **menempelnya sendiri**. Kosong = Android memakai koneksi langsung |
 
 Jangan isi `*_BASE_URL` kecuali pemilik memintanya — host di luar allowlist akan ditolak server.
 
@@ -117,7 +118,7 @@ Periksa tanpa membocorkan isi:
 
 ```bash
 grep -cE '^ADMIN_PASSWORD=GANTI' .env            # harus 0
-for k in KENARI_API_KEY AGNES_API_KEY OPENROUTER_API_KEY GITHUB_RELEASE_TOKEN; do
+for k in KENARI_API_KEY AGNES_API_KEY OPENROUTER_API_KEY GITHUB_RELEASE_TOKEN FCM_CREDENTIALS; do
   grep -qE "^${k}=.+" .env && echo "$k: terisi" || echo "$k: kosong"
 done
 stat -c '%a %U' .env                              # harus 600

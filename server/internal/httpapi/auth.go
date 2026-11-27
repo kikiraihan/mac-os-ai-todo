@@ -97,7 +97,8 @@ func (s *Server) authenticate(w http.ResponseWriter, r *http.Request) (db.Sessio
 	}
 	sess, user, err := s.DB.SessionByTokenHash(hashToken(token))
 	// Akun pengguna selalu role "user"; selain itu ditolak (pertahanan berlapis, lihat adminauth.go).
-	if err != nil || user.Disabled || user.Role != db.RoleUser {
+	// Token MCP hanya berlaku di /mcp (mcp.go) — tidak bisa dipakai untuk /api/ (chat, ingatan, pengaturan).
+	if err != nil || user.Disabled || user.Role != db.RoleUser || sess.Kind == db.SessionMCP {
 		if fromCookie {
 			s.clearCookie(w)
 		}

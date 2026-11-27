@@ -19,6 +19,7 @@ import (
 	"aitodo/server/internal/assistant"
 	"aitodo/server/internal/core"
 	"aitodo/server/internal/db"
+	"aitodo/server/internal/fcm"
 	"aitodo/server/internal/push"
 	"aitodo/server/internal/release"
 )
@@ -40,6 +41,8 @@ type Config struct {
 	DefaultTZ     *time.Location
 	// AICallRetentionDays: AI Call Log dihapus setelah N hari (0 = selamanya).
 	AICallRetentionDays int
+	// PublicURL: alamat publik server (PUBLIC_URL, mis. https://todo.contoh.id) — issuer OAuth & URL MCP.
+	PublicURL string
 }
 
 type Server struct {
@@ -54,6 +57,8 @@ type Server struct {
 	SystemLog *applog.Ring
 	// Release: rilis aplikasi Mac dari GitHub (release.go). nil = fitur mati.
 	Release *release.Service
+	// FCM: pengenal Firebase untuk aplikasi Android (clips.go). nil = Android memakai long-poll.
+	FCM *fcm.Client
 
 	loginLimit *limiter
 	chatLimit  *limiter
@@ -67,6 +72,10 @@ func New(d *db.DB, reg *ai.Registry, p *push.Service, cfg Config) *Server {
 	s := &Server{DB: d, AI: reg, Push: p, Hub: NewHub(), Cfg: cfg, Mux: http.NewServeMux(),
 		loginLimit: newLimiter(), chatLimit: newLimiter(), dlLimit: newLimiter(), locCache: map[string]*time.Location{}}
 	s.Assistant = &assistant.Assistant{DB: d, AI: reg, OnChange: s.Hub.Bump}
+	if p != nil {
+		// Notifikasi baru membangunkan long-poll (aplikasi Android tanpa FCM membaca kotak masuk).
+		p.OnNotify = s.Hub.Bump
+	}
 	s.routes()
 	return s
 }
@@ -148,6 +157,9 @@ func (s *Server) routes() {
 
 	s.memoryRoutes()
 	s.releaseRoutes()
+	s.clipRoutes()
+	s.mcpRoutes()
+	s.oauthRoutes()
 
 	// /api/ lain → 404 JSON (bukan halaman SPA).
 	m.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {

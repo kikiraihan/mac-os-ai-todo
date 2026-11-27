@@ -49,7 +49,7 @@ func TestMacRelease(t *testing.T) {
 		t.Fatalf("latest: %d %v", code, out)
 	}
 	for k := range out {
-		if k != "version" && k != "publishedAt" && k != "page" && k != "zip" && k != "sig" {
+		if k != "version" && k != "publishedAt" && k != "page" && k != "zip" && k != "sig" && k != "apk" {
 			t.Fatalf("field tak terduga dikirim ke klien: %q", k)
 		}
 	}
