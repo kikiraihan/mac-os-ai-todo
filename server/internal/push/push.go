@@ -57,7 +57,21 @@ type Service struct {
 	// allow & client bisa diganti di tes (layanan push tiruan); bawaannya allowlist & http.Client biasa.
 	allow  func(string) bool
 	client webpush.HTTPClient
+
+	// FCM membangunkan aplikasi Android (nil = FCM tidak dipasang; Android memakai long-poll).
+	FCM Waker
+	// OnNotify dipanggil setelah notifikasi masuk kotak masuk (membangunkan long-poll Android).
+	OnNotify func(userID int64)
 }
+
+// Waker mengirim pesan "bangun" ke satu perangkat Android lewat FCM. Isinya hanya nomor
+// notifikasi — judul & isi diambil aplikasi langsung dari server, jadi tidak lewat Google.
+type Waker interface {
+	Wake(token string, notificationID int64) error
+}
+
+// ErrTokenGone: token FCM sudah tidak berlaku (aplikasi dihapus / data dibersihkan).
+var ErrTokenGone = errors.New("token FCM tidak berlaku lagi")
 
 // subscriberClaim menyiapkan nilai `sub` JWT VAPID. webpush-go sendiri menambahkan "mailto:" kalau
 // nilainya bukan URL https, jadi "mailto:a@b.c" dari .env harus dikirim tanpa awalan itu — kalau tidak,
@@ -101,34 +115,122 @@ func New(database *db.DB, subscriber string) (*Service, error) {
 		allow: AllowedEndpoint, client: &http.Client{Timeout: 15 * time.Second}}, nil
 }
 
-// Notification adalah isi yang dibaca service worker PWA (public/push-sw.js).
+// Notification adalah isi yang dibaca service worker PWA (public/push-sw.js) dan
+// aplikasi Android (kotak masuk GET /api/notifications).
 type Notification struct {
+	ID         int64  `json:"id,omitempty"`   // nomor di kotak masuk (diisi Notify)
+	Kind       string `json:"kind,omitempty"` // reminder | due | brief | nudge | clip | test
 	Title      string `json:"title"`
 	Body       string `json:"body"`
 	URL        string `json:"url"`
 	Tag        string `json:"tag"`
 	TodoID     int64  `json:"todoId,omitempty"`
 	ReminderID int64  `json:"reminderId,omitempty"`
+	ClipID     int64  `json:"clipId,omitempty"`
+	// Text: teks untuk tombol "Salin" (kiriman / judul + detail todo). Kosong bila terlalu
+	// panjang (TextTruncated) atau isi notifikasi disembunyikan — klien mengambilnya lewat API.
+	Text          string `json:"text,omitempty"`
+	TextTruncated bool   `json:"textTruncated,omitempty"`
 }
 
-// SendToUser mengirim ke semua perangkat PWA milik pengguna. Mengembalikan
+// MaxInboxText: teks salin terpanjang yang ikut disimpan di kotak masuk / dikirim lewat Web Push
+// (payload Web Push dibatasi ±4 KB).
+const (
+	MaxInboxText   = 4000
+	maxWebPushText = 2000
+)
+
+// SendToUser mengirim ke semua perangkat milik pengguna. Mengembalikan
 // jumlah yang berhasil.
 func (s *Service) SendToUser(userID int64, n Notification) (int, error) {
+	return s.Notify(userID, 0, n)
+}
+
+// Notify menyimpan notifikasi di kotak masuk, lalu mengirimnya ke semua perangkat
+// pengguna kecuali sesi exceptSession (mis. perangkat pengirim kiriman): Web Push ke
+// PWA dan pesan bangun FCM ke Android. Mengembalikan jumlah perangkat yang berhasil.
+func (s *Service) Notify(userID, exceptSession int64, n Notification) (int, error) {
+	if len(n.Text) > MaxInboxText {
+		n.Text, n.TextTruncated = "", true
+	}
+	if raw, err := json.Marshal(n); err == nil {
+		if id, err := s.DB.InsertNotification(userID, exceptSession, string(raw)); err == nil {
+			n.ID = id
+		} else {
+			log.Printf("push: kotak masuk: %v", err)
+		}
+	}
+	if s.OnNotify != nil {
+		s.OnNotify(userID)
+	}
+	webOK, webTargets, webErr := s.sendWeb(userID, exceptSession, n)
+	fcmOK, fcmTargets, fcmErr := s.sendFCM(userID, exceptSession, n.ID)
+	ok := webOK + fcmOK
+	lastErr := webErr
+	if lastErr == nil {
+		lastErr = fcmErr
+	}
+	if ok == 0 && lastErr != nil {
+		return 0, lastErr
+	}
+	if webTargets+fcmTargets == 0 {
+		return 0, errors.New("belum ada perangkat yang menyalakan notifikasi")
+	}
+	if ok == 0 {
+		// Semua langganan ternyata kedaluwarsa (404/410) dan sudah dibuang.
+		return 0, errors.New("belum ada perangkat yang menyalakan notifikasi (langganan lama sudah kedaluwarsa, nyalakan ulang)")
+	}
+	return ok, nil
+}
+
+func (s *Service) sendFCM(userID, exceptSession, nid int64) (ok, targets int, lastErr error) {
+	if s.FCM == nil || nid == 0 {
+		return 0, 0, nil
+	}
+	toks, err := s.DB.FCMTokensForUser(userID)
+	if err != nil {
+		return 0, 0, err
+	}
+	for _, t := range toks {
+		if exceptSession != 0 && t.SessionID == exceptSession {
+			continue
+		}
+		targets++
+		switch err := s.FCM.Wake(t.Token, nid); {
+		case err == nil:
+			ok++
+		case errors.Is(err, ErrTokenGone):
+			s.DB.DeleteFCMTokenByID(t.ID)
+		default:
+			lastErr = err
+			log.Printf("push: FCM token %d: %v", t.ID, err)
+		}
+	}
+	return ok, targets, lastErr
+}
+
+// sendWeb mengirim Web Push ke semua langganan PWA pengguna (kecuali sesi exceptSession).
+func (s *Service) sendWeb(userID, exceptSession int64, n Notification) (ok, targets int, lastErr error) {
 	subs, err := s.DB.PushSubsForUser(userID)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
+	}
+	if len(n.Text) > maxWebPushText {
+		n.Text, n.TextTruncated = "", true
 	}
 	payload, err := json.Marshal(n)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
-	ok := 0
-	var lastErr error
 	for _, sub := range subs {
+		if exceptSession != 0 && sub.SessionID == exceptSession {
+			continue
+		}
 		if !s.allow(sub.Endpoint) {
 			s.DB.DeletePushSubByID(sub.ID)
 			continue
 		}
+		targets++
 		resp, err := webpush.SendNotification(payload, &webpush.Subscription{
 			Endpoint: sub.Endpoint,
 			Keys:     webpush.Keys{P256dh: sub.P256dh, Auth: sub.Auth},
@@ -160,15 +262,5 @@ func (s *Service) SendToUser(userID int64, n Notification) (int, error) {
 			log.Printf("push: kirim ke langganan %d: %v", sub.ID, lastErr)
 		}
 	}
-	if ok == 0 && lastErr != nil {
-		return 0, lastErr
-	}
-	if len(subs) == 0 {
-		return 0, errors.New("belum ada perangkat yang menyalakan notifikasi")
-	}
-	if ok == 0 {
-		// Semua langganan ternyata kedaluwarsa (404/410) dan sudah dibuang.
-		return 0, errors.New("belum ada perangkat yang menyalakan notifikasi (langganan lama sudah kedaluwarsa, nyalakan ulang)")
-	}
-	return ok, nil
+	return ok, targets, lastErr
 }

@@ -7,7 +7,11 @@ export const todoText = (x, titleOnly = false) => (titleOnly || !x.notes ? x.tit
 export const copyNote = (n, titleOnly = false) => copyTodo({ title: n.title, notes: n.content || '' }, titleOnly, 'isi')
 
 export async function copyTodo(x, titleOnly = false, what = 'detail') {
-  const text = todoText(x, titleOnly)
+  if (await copyText(todoText(x, titleOnly))) toast(titleOnly || !x.notes ? 'Judul disalin' : `Judul & ${what} disalin`)
+}
+
+// Salin teks apa adanya (mis. kiriman). Mengembalikan true kalau berhasil; gagal = toast error.
+export async function copyText(text) {
   try {
     await navigator.clipboard.writeText(text)
   } catch {
@@ -20,7 +24,10 @@ export async function copyTodo(x, titleOnly = false, what = 'detail') {
     ta.select()
     const ok = document.execCommand('copy')
     ta.remove()
-    if (!ok) return toast('Gagal menyalin', 'error')
+    if (!ok) {
+      toast('Gagal menyalin', 'error')
+      return false
+    }
   }
-  toast(titleOnly || !x.notes ? 'Judul disalin' : `Judul & ${what} disalin`)
+  return true
 }

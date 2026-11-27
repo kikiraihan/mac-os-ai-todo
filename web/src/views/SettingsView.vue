@@ -4,6 +4,8 @@ import { useRouter } from 'vue-router'
 import { get, post, put, del } from '../api'
 import { state, toast, errorText, logout, loadMe } from '../store'
 import { timeAgo } from '../dates'
+import { copyText } from '../copy'
+import AndroidAppCard from '../components/AndroidAppCard.vue'
 import Icon from '../components/Icon.vue'
 import { pushState as readPushState, enablePush as turnOnPush, disablePush as turnOffPush, syncPush } from '../push'
 import { appVersion, update, checkUpdate, applyUpdate, forceReload, serverNewer } from '../update'
@@ -17,6 +19,12 @@ const sessions = ref([])
 const currentId = ref(0)
 const deviceName = ref('MacBook')
 const newToken = ref('')
+// Integrasi AI lain lewat MCP (server/internal/httpapi/mcp.go).
+const mcpURL = `${window.location.origin}/mcp`
+const mcpName = ref('Claude Code')
+const mcpWrite = ref(true)
+const mcpToken = ref('')
+const mcpCommand = computed(() => `claude mcp add --transport http aitodo ${mcpURL} --header "Authorization: Bearer ${mcpToken.value}"`)
 const pushState = ref('unknown') // unsupported | denied | off | on
 const zones = typeof Intl.supportedValuesOf === 'function' ? Intl.supportedValuesOf('timeZone') : ['Asia/Jakarta', 'Asia/Makassar', 'Asia/Jayapura']
 const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent)
@@ -127,6 +135,20 @@ async function createDevice() {
   }
 }
 
+async function createMCPToken() {
+  try {
+    const res = await post('/mcp/tokens', { name: mcpName.value, write: mcpWrite.value })
+    mcpToken.value = res.token
+    await loadSessions()
+  } catch (e) {
+    toast(errorText(e), 'error')
+  }
+}
+
+async function copyPlain(text, what) {
+  if (await copyText(text)) toast(`${what} disalin`)
+}
+
 async function copyToken() {
   try {
     await navigator.clipboard.writeText(newToken.value)
@@ -158,7 +180,7 @@ async function doLogout() {
 }
 
 function deviceLabel(s) {
-  if (s.kind === 'device') return s.name
+  if (s.kind === 'device' || s.kind === 'mcp') return s.name
   const ua = s.userAgent || ''
   if (/iphone|ipad/i.test(ua)) return 'iPhone/iPad'
   if (/android/i.test(ua)) return 'Android'
@@ -181,6 +203,7 @@ onMounted(() => {
     </div>
 
     <nav class="card more-menu" aria-label="Menu lain">
+      <RouterLink to="/kiriman" class="more-link"><Icon name="send" :size="18" /> Kiriman</RouterLink>
       <RouterLink to="/ingatan" class="more-link"><Icon name="brain" :size="18" /> Ingatan AI</RouterLink>
       <!-- Mode admin = akun terpisah; tautan hanya tampil kalau sudah masuk sebagai admin di browser ini. -->
       <RouterLink v-if="state.admin" to="/admin" class="more-link"><Icon name="swap" :size="18" /> Ke mode admin</RouterLink>
@@ -268,13 +291,45 @@ onMounted(() => {
           <tbody>
             <tr v-for="s in sessions" :key="s.id">
               <td>{{ deviceLabel(s) }} <span v-if="s.id === currentId" class="tag accent">ini</span>
-                <span v-if="s.kind === 'device'" class="tag">token</span></td>
+                <span v-if="s.kind === 'device'" class="tag">token</span>
+                <span v-if="s.kind === 'mcp'" class="tag" :title="s.clientId ? 'Terhubung lewat OAuth' : 'Token MCP manual'">
+                  AI · {{ (s.scope || '').includes('write') ? 'baca & tulis' : 'baca' }}</span></td>
               <td class="small muted">{{ timeAgo(s.lastSeenAt) }}</td>
               <td><button class="btn sm danger" @click="revoke(s)">Keluarkan</button></td>
             </tr>
           </tbody>
         </table>
       </div>
+    </section>
+
+    <section class="card">
+      <h3>Aplikasi Android</h3>
+      <AndroidAppCard />
+    </section>
+
+    <section class="card">
+      <h3>Integrasi AI lain (MCP)</h3>
+      <p class="muted small">Hubungkan AI Todo ke Claude atau AI lain yang mendukung MCP, misalnya supaya Claude bisa
+        menambah todo atau <b>mengingatkanmu</b> (pengingat dikirim server ke HP & Mac seperti biasa). AI lain tidak bisa
+        menghapus apa pun, membaca chat, maupun Ingatan AI.</p>
+      <div class="token plain">
+        <code>{{ mcpURL }}</code>
+        <button class="btn sm" @click="copyPlain(mcpURL, 'URL MCP')">Salin URL</button>
+      </div>
+      <p class="hint"><b>claude.ai / aplikasi Claude:</b> Settings → Connectors → Add custom connector → tempel URL di atas,
+        lalu setujui di halaman izin yang muncul. <b>Claude Code / klien lain dengan header:</b> buat token di bawah.</p>
+      <form class="row mcp-form" @submit.prevent="createMCPToken">
+        <input v-model="mcpName" type="text" maxlength="60" class="grow" aria-label="Nama klien MCP" />
+        <label class="check"><input v-model="mcpWrite" type="checkbox" /> Boleh menambah & mengubah</label>
+        <button class="btn">Buat token MCP</button>
+      </form>
+      <div v-if="mcpToken" class="token">
+        <code>{{ mcpCommand }}</code>
+        <button class="btn sm" @click="copyPlain(mcpCommand, 'Perintah')">Salin perintah</button>
+        <button class="btn sm" @click="copyPlain(mcpToken, 'Token')">Salin token</button>
+        <button class="btn sm" @click="mcpToken = ''">Sudah kusimpan</button>
+      </div>
+      <p class="hint">Akses AI yang terhubung tampil di daftar Perangkat di atas (tanda “AI”) — cabut dengan Keluarkan.</p>
     </section>
 
     <section class="card">
@@ -342,5 +397,14 @@ hr {
 }
 .sessions {
   margin-top: 12px;
+}
+.mcp-form {
+  flex-wrap: wrap;
+}
+.mcp-form input[type='text'] {
+  flex: 1 1 220px;
+}
+.token.plain {
+  background: var(--surface-2);
 }
 </style>

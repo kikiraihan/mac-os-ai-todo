@@ -277,6 +277,30 @@ if case .failure(.server(400, _)) = wait({ api.createNote(["title": " "], $0) })
 else { check(false, "catatan kosong ditolak") }
 check(defKeys[.tabNotes]?.display == "⌘4", "pintasan tab Catatan bawaan ⌘4")
 
+// kiriman: Mac mengirim → perangkat lain (HP) mendapat notifikasi kotak masuk dengan teks Salin; pengirim tidak
+let phone = APIClient()
+if case .success(let pl) = wait({ phone.loginDevice(base: base, username: user, password: pass, device: "Pixel Tes", completion: $0) }) {
+    phone.configure(base: base, token: pl.token)
+    guard case .success(let start) = wait({ phone.inbox(after: nil, $0) }),
+          case .success(let mine0) = wait({ api.inbox(after: nil, $0) }) else { exit(1) }
+    check(start.items.isEmpty, "kotak masuk awal tanpa isi lama")
+    if case .success(let sent) = wait({ api.sendClip("git pull --rebase\n", $0) }) {
+        check(sent.clip.device == "MacBook Tes" && sent.clip.content == "git pull --rebase\n", "kirim kiriman dari Mac")
+        if case .success(let got) = wait({ phone.inbox(after: start.last, $0) }) {
+            let c = ClipInbox.clips(got.items)
+            check(c.count == 1 && c[0].text == "git pull --rebase\n" && c[0].clipId == sent.clip.id, "HP menerima kiriman + teks Salin")
+            check(ClipInbox.next(after: start.last, inbox: got) == c[0].id, "posisi baca kotak masuk maju")
+        } else { check(false, "HP menerima kiriman + teks Salin") }
+        if case .success(let mine) = wait({ api.inbox(after: mine0.last, $0) }) {
+            check(ClipInbox.clips(mine.items).isEmpty, "pengirim tidak menerima kirimannya sendiri")
+        } else { check(false, "pengirim tidak menerima kirimannya sendiri") }
+        if case .success(let one) = wait({ phone.clip(sent.clip.id, $0) }) { check(one.clip.id == sent.clip.id, "ambil kiriman (teks panjang)") }
+        else { check(false, "ambil kiriman (teks panjang)") }
+    } else { check(false, "kirim kiriman dari Mac") }
+    if case .failure(.server(400, _)) = wait({ api.sendClip("   ", $0) }) { check(true, "kiriman kosong ditolak") }
+    else { check(false, "kiriman kosong ditolak") }
+} else { check(false, "login perangkat kedua") }
+
 // pembaruan aplikasi lewat server: server tes tidak diatur (GITHUB_RELEASE_REPO kosong) → 501 berpesan
 if case .failure(.server(501, let msg)) = wait(api.macRelease) {
     check(msg.contains("GITHUB_RELEASE_REPO"), "pembaruan lewat server belum diatur → 501")

@@ -3,6 +3,8 @@ name: Mac app
 # Build AITodo.app di mesin macOS GitHub (tidak ada Mac di lingkungan pengembangan agen).
 # Rilis otomatis: naikkan CFBundleShortVersionString di Resources/Info.plist (sama dengan VERSION),
 # lalu merge ke main → tag v<versi> + GitHub Release berisi AITodo.zip.
+# Aplikasi Android (android/) ikut dibangun di job `android` dan AITodo.apk masuk rilis yang sama
+# (lihat ANDROID.md — butuh secret ANDROID_KEYSTORE_* supaya APK rilis bertanda tangan tetap).
 on:
   push:
     paths:
@@ -11,6 +13,8 @@ on:
       - "Tests/**"
       - "scripts/**"
       - "server/**"
+      - "android/**"
+      - "VERSION"
       - ".github/workflows/mac.yml"
   pull_request:
   workflow_dispatch:
@@ -74,18 +78,70 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: AITodo
-          path: dist/AITodo.zip
+          path: |
+            dist/AITodo.zip
+            dist/AITodo.zip.sig
+          if-no-files-found: warn
 
+    outputs:
+      tag: ${{ steps.ver.outputs.tag }}
+      exists: ${{ steps.ver.outputs.exists }}
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: android-actions/setup-android@v3
+      - name: Tes unit & build debug
+        working-directory: android
+        run: ./gradlew --no-daemon testDebugUnitTest assembleDebug
+      - name: Build rilis bertanda tangan
+        working-directory: android
+        env:
+          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          mkdir -p ../dist
+          if [ -z "$ANDROID_KEYSTORE_B64" ]; then
+            echo "::warning::Secret ANDROID_KEYSTORE_B64 belum diatur → rilis tanpa AITodo.apk (lihat ANDROID.md)"
+            cp app/build/outputs/apk/debug/app-debug.apk ../dist/AITodo-debug.apk
+            exit 0
+          fi
+          echo "$ANDROID_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/aitodo.jks"
+          ANDROID_KEYSTORE_FILE="$RUNNER_TEMP/aitodo.jks" ./gradlew --no-daemon assembleRelease
+          cp app/build/outputs/apk/release/app-release.apk ../dist/AITodo.apk
+          rm -f "$RUNNER_TEMP/aitodo.jks"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AITodo-android
+          path: dist/*.apk
+
+  release:
+    needs: [build, android]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.build.outputs.exists == 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
       - name: Rilis otomatis (push ke main, versi belum dirilis)
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.ver.outputs.exists == 'false'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.ver.outputs.tag }}
-          name: AI Todo ${{ steps.ver.outputs.tag }}
+          tag_name: ${{ needs.build.outputs.tag }}
+          name: AI Todo ${{ needs.build.outputs.tag }}
           target_commitish: ${{ github.sha }}
           generate_release_notes: true
+          fail_on_unmatched_files: false
           files: |
             dist/AITodo.zip
             dist/AITodo.zip.sig
+            dist/AITodo.apk
 
 # Dummy: memicu ulang rilis v0.19.0 (sebelumnya tersendat kuota GitHub)

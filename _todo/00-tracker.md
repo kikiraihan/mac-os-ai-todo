@@ -302,8 +302,36 @@ Rancangan: [`../docs/PRD.md`](../docs/PRD.md). Perbarui setiap tugas selesai.
 - [ ] Pemilik: GitHub Actions berhenti jalan sejak 21 Nov (semua job gagal ±2 detik tanpa log — cek billing / menit
       Actions di Settings → Billing). Akibatnya kode Swift Catatan belum pernah dikompilasi & deploy #39 belum jalan
 
+- [x] 0.22.0: **aplikasi Android, Kiriman antarperangkat, dan MCP untuk AI lain** —
+      - **Server**: kotak masuk notifikasi (`notifications`, `GET /api/notifications?after=`) — semua notifikasi lewat
+        `push.Service.Notify` (kotak masuk + Web Push + FCM), pengirim bisa dikecualikan per sesi. **Kiriman** (`clips`,
+        `core.CreateClip`, `/api/clips`, 7 hari / 50 terbaru). **FCM HTTP v1** (`internal/fcm`, `FCM_CREDENTIALS` +
+        pengenal Android dari env; pesan hanya berisi nomor notifikasi), `POST /api/push/fcm`, `GET /api/app/android/config`,
+        rilis `AITodo.apk` lewat `/api/app/android/*`. **MCP** `/mcp` (JSON-RPC Streamable HTTP, 13 tool: todo, pengingat,
+        catatan, `send_to_devices`; tanpa hapus; scope read / read write) + **OAuth 2.1** (metadata, DCR, PKCE S256,
+        persetujuan `/izinkan`, refresh dirotasi). Token MCP manual dari web; sesi `mcp` ditolak di `/api/`. Tes:
+        `mcp_test.go`, `fcm_test.go`
+      - **Web**: halaman **Kiriman** (`/kiriman`, desktop di menu samping; HP dari Pengaturan), notifikasi kiriman di PWA
+        punya tombol Salin → halaman Kiriman dengan tombol Salin besar; halaman izin OAuth `/izinkan`; Pengaturan →
+        **Integrasi AI lain (MCP)** (URL, buat token + perintah `claude mcp add`), sesi AI tampil di Perangkat
+      - **Mac**: kiriman dari perangkat lain → notifikasi dengan tombol **Salin** (klik notifikasi juga menyalin);
+        klik kanan ikon → "Kirim clipboard ke HP", menu baris todo & catatan → "Kirim ke HP". Tes klien diperluas
+      - **Android** (`android/`, Kotlin + Compose): login token perangkat (Keystore), tab Asisten | Todo | Pengingat |
+        Catatan | Kiriman, geser kanan/kiri, picker tanggal & jam, notifikasi dengan **Salin / Selesai / Tunda** langsung
+        dari notifikasi, FCM (tanpa google-services.json) atau koneksi langsung, Bagikan → AI Todo, pembaruan APK lewat
+        server. CI: job `android` di `mac.yml` + rilis gabungan
+      - **Unduh APK dari web**: `GET /unduh/AITodo.apk` (navigasi browser, wajib login → belum login diarahkan ke masuk
+        lalu `/aplikasi`); halaman masuk menawarkan aplikasi (browser Android), spanduk "Pasang aplikasi Android" di
+        dashboard (browser Android, bisa ditutup), bagian Aplikasi Android di Pengaturan, halaman `/aplikasi`
+- [ ] Pemilik: isi `PUBLIC_URL` (sudah) lalu sambungkan Claude → Settings → Connectors → `https://DOMAIN/mcp`
+- [ ] Pemilik: buat kunci tanda tangan Android + secret `ANDROID_KEYSTORE_*` (ANDROID.md §3) supaya rilis berisi AITodo.apk
+- [ ] Pemilik (opsional): proyek Firebase + `FCM_*` di `.env` (ANDROID.md §2); tanpa ini Android memakai koneksi langsung
+- [ ] Uji manual di HP Android sungguhan: login, notifikasi kiriman → Salin, pengingat → Tunda, todo → Selesai,
+      Bagikan → AI Todo, mode FCM & koneksi langsung, mode gelap
+- [ ] Uji manual di Mac sungguhan: klik kanan ikon → Kirim clipboard ke HP; kiriman dari HP → notifikasi Salin
+
 ## Berikutnya
-## Berikutnya
+
 
 - [x] 0.11.0: pembaruan aplikasi Mac lewat server (`/api/app/mac/*`, token GitHub read-only di `.env`) — repo private tetap bisa update
 - [ ] Pemilik: isi `GITHUB_RELEASE_TOKEN` di `.env` VPS, lalu pasang AITodo 0.11.0 manual sekali

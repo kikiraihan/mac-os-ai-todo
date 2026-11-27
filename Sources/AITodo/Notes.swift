@@ -494,6 +494,7 @@ final class NotesPane: NSView, NSGestureRecognizerDelegate, NSTextFieldDelegate,
         add("Ubah…", #selector(editMenuItem(_:)))
         add("Salin", #selector(copyMenuItem(_:)))
         if !n.content.isEmpty { add("Salin judul saja", #selector(copyTitleMenuItem(_:)), alternate: true) }
+        add("Kirim ke HP", #selector(sendMenuItem(_:)))
         m.addItem(.separator())
         add(n.pinned ? "Lepas sematan" : "Sematkan", #selector(pinMenuItem(_:)))
         add("Hapus…", #selector(deleteMenuItem(_:)))
@@ -545,6 +546,10 @@ final class NotesPane: NSView, NSGestureRecognizerDelegate, NSTextFieldDelegate,
     @objc private func editMenuItem(_ item: NSMenuItem) { note(item).map { beginEdit($0.id) } }
     @objc private func copyMenuItem(_ item: NSMenuItem) { note(item).map { copy($0, titleOnly: false) } }
     @objc private func copyTitleMenuItem(_ item: NSMenuItem) { note(item).map { copy($0, titleOnly: true) } }
+    @objc private func sendMenuItem(_ item: NSMenuItem) {
+        guard let n = note(item) else { return }
+        ClipSend.send(n.content.isEmpty ? n.title : n.title + "\n\n" + n.content, api: store.api) { [weak self] msg in self?.flashStatus(msg) }
+    }
     @objc private func pinMenuItem(_ item: NSMenuItem) { note(item).map { setPinned($0, !$0.pinned) } }
     @objc private func deleteMenuItem(_ item: NSMenuItem) { note(item).map { delete($0) } }
 

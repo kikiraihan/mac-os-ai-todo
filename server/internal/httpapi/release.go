@@ -1,10 +1,12 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"aitodo/server/internal/release"
@@ -19,6 +21,12 @@ func (s *Server) releaseRoutes() {
 	m := s.Mux
 	m.HandleFunc("GET /api/app/mac/latest", s.authed(s.macLatest))
 	m.HandleFunc("GET /api/app/mac/download/{name}", s.authed(s.macDownload))
+	// Android memakai rilis yang sama (file AITodo.apk).
+	m.HandleFunc("GET /api/app/android/latest", s.authed(s.macLatest))
+	m.HandleFunc("GET /api/app/android/download/{name}", s.authed(s.macDownload))
+	// Tautan unduh APK untuk browser (web/PWA): navigasi biasa tidak bisa mengirim header X-AITodo,
+	// jadi di luar /api/. Tetap wajib login (cookie SameSite=Strict / Bearer); belum login → halaman masuk.
+	m.HandleFunc("GET /unduh/AITodo.apk", s.apkBrowserDownload)
 }
 
 func releaseErr(w http.ResponseWriter, err error) {
@@ -42,8 +50,24 @@ func (s *Server) macLatest(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, info)
 }
 
+func (s *Server) apkBrowserDownload(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	sess, user, ok := s.authenticate(w, r)
+	if !ok {
+		http.Redirect(w, r, "/masuk?next=%2Faplikasi", http.StatusFound)
+		return
+	}
+	ctx := context.WithValue(r.Context(), keyUser, user)
+	ctx = context.WithValue(ctx, keySession, sess)
+	s.serveAsset(w, r.WithContext(ctx), "AITodo.apk")
+}
+
 func (s *Server) macDownload(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
+	s.serveAsset(w, r, r.PathValue("name"))
+}
+
+// serveAsset meneruskan satu file rilis (hanya nama di release.Assets) ke pengguna yang sudah login.
+func (s *Server) serveAsset(w http.ResponseWriter, r *http.Request, name string) {
 	known := false
 	for _, a := range release.Assets {
 		known = known || a == name
@@ -62,7 +86,11 @@ func (s *Server) macDownload(w http.ResponseWriter, r *http.Request) {
 	err := s.Release.Download(r.Context(), name, w, func(size int64) {
 		started = true
 		h := w.Header()
-		h.Set("Content-Type", "application/octet-stream")
+		if strings.HasSuffix(name, ".apk") {
+			h.Set("Content-Type", "application/vnd.android.package-archive")
+		} else {
+			h.Set("Content-Type", "application/octet-stream")
+		}
 		h.Set("Content-Disposition", `attachment; filename="`+name+`"`)
 		if size >= 0 {
 			h.Set("Content-Length", strconv.FormatInt(size, 10))

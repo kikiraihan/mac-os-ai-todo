@@ -29,9 +29,11 @@ func TestMacRelease(t *testing.T) {
 		switch r.URL.Path {
 		case "/repos/o/r/releases/latest":
 			fmt.Fprint(w, `{"tag_name":"v9.0.0","html_url":"https://github.com/o/r/releases/tag/v9.0.0",
-				"assets":[{"id":1,"name":"AITodo.zip"},{"id":2,"name":"AITodo.zip.sig"}]}`)
+				"assets":[{"id":1,"name":"AITodo.zip"},{"id":2,"name":"AITodo.zip.sig"},{"id":3,"name":"AITodo.apk"}]}`)
 		case "/repos/o/r/releases/assets/1":
 			fmt.Fprint(w, "ZIP")
+		case "/repos/o/r/releases/assets/3":
+			fmt.Fprint(w, "APK")
 		default:
 			http.NotFound(w, r)
 		}
@@ -49,7 +51,7 @@ func TestMacRelease(t *testing.T) {
 		t.Fatalf("latest: %d %v", code, out)
 	}
 	for k := range out {
-		if k != "version" && k != "publishedAt" && k != "page" && k != "zip" && k != "sig" {
+		if k != "version" && k != "publishedAt" && k != "page" && k != "zip" && k != "sig" && k != "apk" {
 			t.Fatalf("field tak terduga dikirim ke klien: %q", k)
 		}
 	}
@@ -67,5 +69,23 @@ func TestMacRelease(t *testing.T) {
 	}
 	if code, _ := anon.do("GET", "/api/app/mac/download/AITodo.zip", nil, true); code != 401 {
 		t.Fatalf("unduh tanpa login harus 401: %d", code)
+	}
+
+	// Tautan unduh APK dari web: navigasi browser biasa (tanpa header X-AITodo), wajib login.
+	if _, out := c.do("GET", "/api/app/android/latest", nil, true); out["apk"] != true {
+		t.Fatalf("android latest: %v", out)
+	}
+	req = httptest.NewRequest("GET", "/unduh/AITodo.apk", nil)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusFound || rec.Header().Get("Location") != "/masuk?next=%2Faplikasi" {
+		t.Fatalf("APK tanpa login harus ke halaman masuk: %d %q", rec.Code, rec.Header().Get("Location"))
+	}
+	req = httptest.NewRequest("GET", "/unduh/AITodo.apk", nil)
+	req.AddCookie(c.cookie)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != 200 || rec.Body.String() != "APK" || rec.Header().Get("Content-Type") != "application/vnd.android.package-archive" {
+		t.Fatalf("unduh APK: %d %q %q", rec.Code, rec.Body.String(), rec.Header().Get("Content-Type"))
 	}
 }

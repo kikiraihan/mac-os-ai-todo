@@ -5,7 +5,9 @@ Panduan untuk agen AI (Claude Code, dsb.) di repo ini.
 ## Proyek
 
 AI Todo: server Go + SQLite (`server/`), PWA Vue 3 (`web/`, hasil build ditanam ke
-`server/internal/webui/dist`), aplikasi menu bar Mac (`Sources/AITodo/`). Rancangan: `docs/PRD.md`.
+`server/internal/webui/dist`), aplikasi menu bar Mac (`Sources/AITodo/`), aplikasi Android Kotlin + Compose
+(`android/`, lihat [`ANDROID.md`](ANDROID.md)), server MCP untuk AI lain (`/mcp`, lihat [`docs/MCP.md`](docs/MCP.md)).
+Rancangan: `docs/PRD.md`.
 Perbarui `_todo/00-tracker.md` setiap tahapan selesai.
 
 **Agen yang memasang / memperbarui server di VPS: ikuti [`DEPLOY.md`](DEPLOY.md)** (termasuk aturan
@@ -19,6 +21,9 @@ cd server && gofmt -l . && go vet ./... && go test -race ./...
 cd web && npm run build
 ./scripts/test-client.sh          # klien Swift ⇄ server Go (butuh swiftc; jalan di Linux juga)
 swiftc -parse Sources/AITodo/*.swift   # di Linux: cek sintaks bagian AppKit
+cd android && ./gradlew testDebugUnitTest assembleDebug   # butuh Android SDK (local.properties: sdk.dir=…);
+                                  # UiTest (Robolectric) menyimpan screenshot tiap tab di android/app/build/screenshots/
+./scripts/test-android.sh         # klien Android ⇄ server Go asli
 ```
 
 Tidak ada Mac di lingkungan agen cloud: bagian AppKit (`main.swift`) baru benar-benar dikompilasi
@@ -80,6 +85,17 @@ Semua tampilan (aplikasi Mac & web) mengikuti gaya desain Apple (Human Interface
 - Fitur baru tidak boleh membuat tampilan yang sudah ada lebih ramai: kalau perlu ruang, sembunyikan
   di balik filter/tab kecil dengan bawaan yang paling ringkas, dan ingat pilihan pengguna.
 
+- **Android** (`android/`): Material 3 bawaan + aksen teal yang sama (`ui/Common.kt`), mode gelap. Menu bawah 5 tab
+  (Asisten | Todo | Pengingat | Catatan | Kiriman; bawaan Todo), judul besar, tombol utama ＋ bulat. Aksi baris =
+  geser (kanan = aksi utama, kiri = hapus dikonfirmasi) + jalan lain lewat ketuk / tekan lama. Tanggal & jam lewat
+  `DateDialog` / `TimeDialog`. Notifikasi dari kotak masuk server dengan tombol Salin / Selesai / Tunda
+  (`Notifier.kt`, `ActionReceiver.kt`) — jangan membuat jadwal notifikasi sendiri di HP.
+- **Kiriman** (web `/kiriman`, Mac klik kanan ikon → "Kirim clipboard ke HP" / menu baris "Kirim ke HP", Android tab
+  Kiriman, MCP `send_to_devices`): teks sementara antarperangkat (7 hari, 50 terbaru), pengirim tidak ikut diberi tahu.
+- **Tawaran aplikasi Android di web** (`components/AndroidAppCard.vue`, `src/androidApp.js`): spanduk di dashboard hanya
+  untuk browser Android & bisa ditutup (diingat), kartu di Pengaturan & `/aplikasi`, ajakan di halaman masuk. Unduhan
+  `/unduh/AITodo.apk` tetap wajib login.
+
 ## Aturan yang tidak boleh dilonggarkan
 
 - **AI tidak pernah menulis database langsung.** Semua aksi lewat `internal/core` (validasi yang
@@ -92,6 +108,12 @@ Semua tampilan (aplikasi Mac & web) mengikuti gaya desain Apple (Human Interface
   Sama untuk `GITHUB_RELEASE_TOKEN` (`internal/release`): host tetap api.github.com, hanya file di
   `release.Assets` yang boleh diteruskan, dan endpoint `/api/app/mac/*` wajib login.
 - **Ingatan** dipindai `core.ScanMemory` sebelum disimpan; jangan melemahkan pola rahasia/injeksi.
+- **MCP** (`internal/httpapi/mcp.go`, `oauth.go`): `/mcp` hanya Bearer sesi jenis `mcp` (tanpa cookie), token MCP
+  ditolak di `/api/`. Tool lewat `internal/core`, scope `read` hanya tool baca, **tidak ada tool hapus**, tanpa akses
+  chat / Ingatan / pengaturan. OAuth: PKCE S256 wajib, persetujuan hanya dari sesi browser, `redirect_uri` harus
+  terdaftar. Jangan longgarkan tanpa izin pemilik.
+- **Notifikasi**: semua lewat `push.Service.Notify` (kotak masuk + Web Push + FCM). Pesan FCM hanya berisi nomor
+  notifikasi — isi tidak boleh dikirim lewat Google. `FCM_CREDENTIALS` hanya dari environment (sama seperti API key AI).
 - Semua `/api/` wajib header `X-AITodo: 1`; cookie `HttpOnly + Secure + SameSite=Strict`; CSP
   tanpa `unsafe-*` (jangan pakai `v-html`, script/style inline, atau CDN).
 - Jadwal pengingat dihitung server (`internal/schedule`), bukan AI. Waktu di database = RFC3339 UTC;
