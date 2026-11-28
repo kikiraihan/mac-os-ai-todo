@@ -324,7 +324,9 @@ Rancangan: [`../docs/PRD.md`](../docs/PRD.md). Perbarui setiap tugas selesai.
         lalu `/aplikasi`); halaman masuk menawarkan aplikasi (browser Android), spanduk "Pasang aplikasi Android" di
         dashboard (browser Android, bisa ditutup), bagian Aplikasi Android di Pengaturan, halaman `/aplikasi`
 - [ ] Pemilik: isi `PUBLIC_URL` (sudah) lalu sambungkan Claude → Settings → Connectors → `https://DOMAIN/mcp`
-- [ ] Pemilik: buat kunci tanda tangan Android + secret `ANDROID_KEYSTORE_*` (ANDROID.md §3) supaya rilis berisi AITodo.apk
+- [x] Pemilik: buat kunci tanda tangan Android + secret `ANDROID_KEYSTORE_*` (ANDROID.md §3) supaya rilis berisi AITodo.apk
+- [x] CI: job `android` gagal di `android-actions/setup-android@v3` (memasang paket lama "tools" yang sudah dihapus) →
+      pakai Android SDK bawaan runner. Rilis v0.22.0 tertunda karena itu (tag belum ada), terbit setelah perbaikan di-merge
 - [ ] Pemilik (opsional): proyek Firebase + `FCM_*` di `.env` (ANDROID.md §2); tanpa ini Android memakai koneksi langsung
 - [ ] Uji manual di HP Android sungguhan: login, notifikasi kiriman → Salin, pengingat → Tunda, todo → Selesai,
       Bagikan → AI Todo, mode FCM & koneksi langsung, mode gelap
